@@ -1,25 +1,19 @@
-import os
 import sqlite3
+from pathlib import Path
 from typing import Optional, List
 from contextlib import contextmanager
-
-# Импорт настроек
-try:
-    from app.config import get_settings
-    settings = get_settings()
-    DATABASE_URL = settings.DATABASE_URL
-except ImportError:
-    # fallback для тестов или если настройки не готовы
-    DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///data/knowledge_base.db")
 
 def get_connection():
     """
     Фабрика соединений с БД.
     """
+    DATABASE_URL = "sqlite:///data/knowledge_base.db"
     # Удаляем префикс sqlite:/// если есть
     if DATABASE_URL.startswith("sqlite:///"):
-        db_path = DATABASE_URL[10:]  # убираем "sqlite:///"
-        return sqlite3.connect(db_path)
+        # Путь от корня
+        BASE_DIR = Path(__file__).resolve().parent.parent.parent
+        db_path =  DATABASE_URL[10:]
+        return sqlite3.connect(BASE_DIR / db_path)
     else:
         # Для других СУБД (например, PostgreSQL) использовать соответствующий драйвер
         # Например: psycopg2.connect(DATABASE_URL)
@@ -44,7 +38,7 @@ def search_documents(
     created_at_start: Optional[str] = None,
     created_at_end: Optional[str] = None,
     updated_at_start: Optional[str] = None,
-    updated_at_end: Optional[str] = None,
+    updated_at_end: Optional[str] = None
 ) -> str:
     """
     Поиск документов в БД knowledge_base.db по различным критериям.
@@ -52,7 +46,7 @@ def search_documents(
     Все параметры опциональны.
     """
     query = """
-        SELECT doc_number, doc_date, title, url, created_at
+        SELECT doc_number, doc_date, title, url
         FROM documents
         WHERE is_deleted = 0
     """
@@ -110,7 +104,7 @@ def search_documents(
 
     result_lines = []
     for row in rows:
-        doc_number_val, doc_date_val, title_val, url_val, _ = row
+        doc_number_val, doc_date_val, title_val, url_val = row
         number_date_part = ""
         if doc_number_val or doc_date_val:
             parts = []

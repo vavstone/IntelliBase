@@ -1,6 +1,12 @@
 import logging.config
+from pathlib import Path
 from pythonjsonlogger.json import JsonFormatter
-from .config import get_settings
+
+
+class MainOnlyFilter(logging.Filter):
+    def filter(self, record):
+        return record.name == "__main__"
+
 
 class CustomJsonFormatter(JsonFormatter):
     def formatTime(self, record, datefmt=None):
@@ -13,8 +19,7 @@ class CustomJsonFormatter(JsonFormatter):
 
 
 def setup_logging():
-    settings = get_settings()
-    log_path = settings.log_path
+    log_path = Path(__file__).resolve().parent.parent / 'logs'
     log_path.mkdir(parents=True, exist_ok=True)
     log_file = log_path / "app.log"
 
@@ -29,6 +34,11 @@ def setup_logging():
                 "datefmt": "%Y-%m-%d %H:%M:%S",
             }
         },
+        "filters": {
+            "main_only": {
+                "()": MainOnlyFilter,
+            }
+        },
         "handlers": {
             "json_file": {
                 "class": "logging.FileHandler",
@@ -36,10 +46,11 @@ def setup_logging():
                 "mode": "a",
                 "formatter": "json",
                 "encoding": "utf-8",
+                "filters": ["main_only"],
             }
         },
         "root": {
-            "level": "DEBUG",
+            "level": "INFO",
             "handlers": ["json_file"],
         },
     }
