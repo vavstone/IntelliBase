@@ -1,0 +1,26 @@
+model_list:
+  - model_name: my-gateway-model
+    litellm_params:
+      model: ollama/gemma3:4b
+      api_base: http://localhost:11434
+      order: 1
+    model_info:
+      mode: chat
+
+  - model_name: my-gateway-model
+    litellm_params:
+      model: gigachat/GigaChat-2
+      api_key: os.environ/GIGACHAT_CREDENTIALS
+      ssl_verify: false
+      order: 2
+    model_info:
+      mode: chat
+
+router_settings:
+  fallbacks: [{"my-gateway-model": ["my-gateway-model"]}]
+  num_retries: 1
+  request_timeout: 30
+
+litellm_settings:
+  drop_params: true
+  set_verbose: false
