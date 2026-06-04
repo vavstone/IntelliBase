@@ -3,11 +3,6 @@ from pathlib import Path
 from pythonjsonlogger.json import JsonFormatter
 
 
-class MainOnlyFilter(logging.Filter):
-    def filter(self, record):
-        return record.name == "__main__"
-
-
 class CustomJsonFormatter(JsonFormatter):
     def formatTime(self, record, datefmt=None):
         # Получаем обычную строку времени без миллисекунд через родительский метод
@@ -34,11 +29,6 @@ def setup_logging():
                 "datefmt": "%Y-%m-%d %H:%M:%S",
             }
         },
-        "filters": {
-            "main_only": {
-                "()": MainOnlyFilter,
-            }
-        },
         "handlers": {
             "json_file": {
                 "class": "logging.FileHandler",
@@ -46,7 +36,6 @@ def setup_logging():
                 "mode": "a",
                 "formatter": "json",
                 "encoding": "utf-8",
-                "filters": ["main_only"],
             }
         },
         "root": {
@@ -55,3 +44,4 @@ def setup_logging():
         },
     }
     logging.config.dictConfig(LOGGING_CONFIG)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
