@@ -6,14 +6,19 @@ build-backend = "setuptools.build_meta"
 name = "intelli_base"
 version = "0.1.0"
 description = "Корпоративная база знаний с использованием ИИ"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 dependencies = [
-    "jinja2>=3.1.6",
-    "openai>=2.38.0",
-    "pydantic_settings>=2.14.1",
-    "python-dotenv>=1.2.2",
-    "python-json-logger>=4.1.0"
+    "fastapi[standard]>=0.110",
+    "pydantic>=2.6",
+    "pydantic-settings>=2.2",
+    "uvicorn[standard]>=0.29",
+    "openai>=1.40",
+    "redis>=5.0",
+    "tenacity>=8.2",
 ]
 
 [project.urls]
 Source = "https://github.com/vavstone/IntelliBase"
+
+[tool.setuptools]
+packages = ["app"]
