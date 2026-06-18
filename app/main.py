@@ -1,8 +1,8 @@
-import logging
 import time
 import uuid
+import httpx
+import structlog
 from contextlib import asynccontextmanager
-
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,17 +20,32 @@ from app.core.exceptions import (
     LLMUnsupportedCountryError
 )
 from app.routers import chat, health, models
+from app.observability.tracing import setup_tracing
+from app.observability.logger import setup_logging
 
-logger = logging.getLogger("llm-service")
-logging.basicConfig(level=logging.INFO)
+# Настраиваем structlog
+setup_logging(level="INFO")
+
+# Получаем логгер для использования во всём файле
+logger = structlog.get_logger()
 
 settings = get_settings()
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    setup_tracing()
+
+    # Создаём HTTP-клиент с прокси (если задан)
+    http_client = httpx.AsyncClient(
+        proxy=settings.proxy_url,  # может быть None
+        timeout=httpx.Timeout(settings.llm.request_timeout, connect=5.0),
+    )
+    app.state.http_client = http_client
 
     app.state.llm = AsyncOpenAI(
         api_key=settings.llm.openai_api_key.get_secret_value(),
+        http_client=http_client,
         timeout=settings.llm.request_timeout,
         max_retries=settings.llm.max_retries,
     )
@@ -47,6 +62,7 @@ async def lifespan(app: FastAPI):
 
     try:
         await app.state.llm.close()
+        await app.state.http_client.aclose()
     except Exception:
         pass
     if app.state.redis is not None:
@@ -75,27 +91,40 @@ app.add_middleware(
 
 @app.middleware("http")
 async def observability_middleware(request: Request, call_next):
-    request.state.request_id = request.headers.get("X-Request-ID", uuid.uuid4().hex)
+    # Получаем или генерируем request_id
+    request_id = request.headers.get("X-Request-ID", uuid.uuid4().hex[:12])
+    request.state.request_id = request_id
     request.state.llm_cost = 0.0
     request.state.llm_tokens = 0
+
+    # Привязываем контекстные переменные для structlog
+    structlog.contextvars.bind_contextvars(
+        request_id=request_id,
+        # TODO: заменить на реальное
+        user_id = getattr(request.state, "user_id", None),
+        path = request.url.path,
+        method = request.method,
+    )
 
     t0 = time.perf_counter()
     try:
         response = await call_next(request)
     except Exception:
-        logger.exception("unhandled", extra={"request_id": request.state.request_id})
+        logger.exception("unhandled exception")
         raise
+    finally:
+        # Очищаем контекст после запроса
+        structlog.contextvars.clear_contextvars()
 
     duration_ms = (time.perf_counter() - t0) * 1000
-    response.headers["X-Request-ID"] = request.state.request_id
+    response.headers["X-Request-ID"] = request_id
     response.headers["X-LLM-Cost-USD"] = f"{request.state.llm_cost:.6f}"
+
+    # Логируем завершение запроса (все привязанные поля автоматически добавятся)
     logger.info(
-        "request method=%s path=%s status=%s duration_ms=%.2f request_id=%s",
-        request.method,
-        request.url.path,
-        response.status_code,
-        duration_ms,
-        request.state.request_id,
+        "request completed",
+        status=response.status_code,
+        duration_ms=round(duration_ms, 2),
     )
     return response
 

@@ -15,6 +15,9 @@ dependencies = [
     "openai>=1.40",
     "redis>=5.0",
     "tenacity>=8.2",
+    "arize-phoenix==17.3.0",
+    "openinference-instrumentation-openai==0.1.51",
+    "structlog==26.1.0"
 ]
 
 [project.urls]

@@ -24,4 +24,5 @@ class Settings(BaseSettings):
     cors_origins: list[str] = Field(default_factory=lambda: ["*"])
     redis_url: str = "redis://localhost:6379/0"
     cache_ttl_seconds: int = 3600
+    proxy_url: str | None = None
     llm: LLMSettings = Field(default_factory=LLMSettings)

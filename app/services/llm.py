@@ -1,6 +1,7 @@
 import hashlib
 import json
-
+import structlog
+from time import perf_counter
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from app.core.exceptions import (
@@ -12,6 +13,7 @@ from app.core.exceptions import (
     LLMUnsupportedCountryError
 )
 from app.schemas.chat import ChatDelta, ChatRequest, ChatResponse, Usage
+from app.observability.pii import prompt_hash, redact_pii
 
 try:
     from openai import (
@@ -36,6 +38,28 @@ class LLMService:
         payload = req.model_dump(exclude={"user_id", "session_id", "stream"})
         blob = json.dumps(payload, sort_keys=True, ensure_ascii=False)
         return "chat:" + hashlib.sha256(blob.encode()).hexdigest()
+
+    def _extract_prompt(self, req: ChatRequest) -> str:
+        """Извлекает пользовательский промт из запроса."""
+        # Берём последнее сообщение с ролью user
+        user_messages = [m for m in req.messages if m.role == "user"]
+        return user_messages[-1].content if user_messages else ""
+
+    def _log_llm_completion(self, raw_prompt: str, model: str, usage: Usage|None, finish_reason: str|None, latency_ms: float) -> None:
+        """Логирование завершения вызова LLM."""
+        logger = structlog.get_logger()
+        logger.info(
+            "llm_request_completed",
+            model=model,
+            input_tokens=usage.prompt_tokens if usage else 0,
+            output_tokens=usage.completion_tokens if usage else 0,
+            latency_ms=round(latency_ms, 2),
+            finish_reason=finish_reason or "stop",
+            # request_id автоматически подхватится из контекста, если вдруг нет - можно явно добавить:
+            # request_id=structlog.contextvars.get_contextvars().get("request_id"),
+            prompt_hash=prompt_hash(raw_prompt) if raw_prompt else None,
+            prompt_preview=redact_pii(raw_prompt)[:120] if raw_prompt else None
+        )
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=10), reraise=True)
     async def _call(self, req: ChatRequest) -> ChatResponse:
@@ -67,8 +91,7 @@ class LLMService:
     async def complete(self, req: ChatRequest) -> ChatResponse:
         # Кешируем только детерминированные ответы и при наличии кеша.
         if req.temperature > 0 or self.cache is None:
-            resp = await self._call(req)
-            resp.cached = False
+            resp = await self._call_with_logging(req)
             return resp
 
         key = self._key(req)
@@ -78,16 +101,27 @@ class LLMService:
             resp.cached = True
             return resp
 
-        resp = await self._call(req)
-        resp.cached = False
+        resp = await self._call_with_logging(req)
         await self.cache.setex(key, self.ttl, resp.model_dump_json())
         return resp
 
+    async def _call_with_logging(self, req: ChatRequest)->ChatResponse:
+        raw_prompt = self._extract_prompt(req)
+        start = perf_counter()
+        resp = await self._call(req)
+        latency_ms = (perf_counter() - start) * 1000
+        resp.cached = False
+        self._log_llm_completion(raw_prompt=raw_prompt, model=resp.model, usage=resp.usage, finish_reason=resp.finish_reason, latency_ms=latency_ms)
+        return resp
+
+
     async def create_stream(self, req: ChatRequest):
         """Создаёт стрим и выбрасывает LLMError при ошибках."""
+        self._stream_start_time = perf_counter()
+        self._stream_prompt = self._extract_prompt(req)
         try:
             return await self.llm.chat.completions.create(
-                model=req.model,
+                model=req.model or "unknown",
                 messages=[m.model_dump() for m in req.messages],
                 temperature=req.temperature,
                 max_tokens=req.max_tokens,
@@ -112,15 +146,35 @@ class LLMService:
 
     async def iterate_stream(self, stream):
         """Итерирует по стриму и выдаёт SSE-совместимые строки."""
+        logger = structlog.get_logger()
+        usage = None
+        finish_reason = None
+        model = None
         async for chunk in stream:
             # Чанк с контентом
+            if getattr(chunk, "model", None):
+                model = chunk.model
             if getattr(chunk, "choices", None):
                 delta = chunk.choices[0].delta
                 if getattr(delta, "content", None):
                     data = ChatDelta(content=delta.content).model_dump_json()
                     yield f"data: {data}\n\n"
+                if chunk.choices[0].finish_reason:
+                    finish_reason = chunk.choices[0].finish_reason
             # Чанк с usage (обычно последний)
             if getattr(chunk, "usage", None):
-                data = ChatDelta(usage=Usage.from_openai(chunk.usage)).model_dump_json()
+                usage = Usage.from_openai(chunk.usage)
+                data = ChatDelta(usage=usage).model_dump_json()
                 yield f"data: {data}\n\n"
+
         yield "data: [DONE]\n\n"
+
+        if usage:
+            latency_ms = (perf_counter() - self._stream_start_time) * 1000
+            self._log_llm_completion(
+                raw_prompt=self._stream_prompt,
+                model=model or "unknown",
+                usage=usage,
+                finish_reason=finish_reason,
+                latency_ms=latency_ms,
+            )

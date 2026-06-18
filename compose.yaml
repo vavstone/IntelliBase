@@ -1,4 +1,14 @@
 services:
+  phoenix:
+    image: arizephoenix/phoenix:17.6.0
+    ports:
+      - "6006:6006" # UI
+      - "4317:4317" # OLTP
+    environment:
+      PHOENIX_WORKING_DIR: /data
+    volumes:
+      - phoenix_data:/data
+
   app:
     build:
       context: .
@@ -12,9 +22,12 @@ services:
       - .env
     environment:
       REDIS_URL: redis://redis:6379/0
+      PHOENIX_COLLECTOR_ENDPOINT: http://phoenix:4317
     depends_on:
       redis:
         condition: service_healthy
+      phoenix:
+        condition: service_started
     healthcheck:
       test:
         - CMD
@@ -40,3 +53,4 @@ services:
 
 volumes:
   redis_data:
+  phoenix_data:

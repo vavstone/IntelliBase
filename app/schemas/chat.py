@@ -1,5 +1,4 @@
 from typing import Annotated, Literal, Union
-
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 Role = Literal["system", "user", "assistant", "tool"]
