@@ -1,0 +1,24 @@
+{
+  "rest": {
+    "RestGenerator": {
+      "name": "diploma-fastapi",
+      "uri": "http://localhost:8000/chat",
+      "method": "post",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "req_template_json_object": {
+        "messages": [
+          {"role": "user", "content": "$INPUT"}
+        ],
+        "model": "gpt-4o-mini",
+        "temperature": 0
+      },
+      "response_json": true,
+      "response_json_field": "content",
+      "fail_on_error": false,
+      "timeout": 120,
+      "read_timeout": 120
+    }
+  }
+}

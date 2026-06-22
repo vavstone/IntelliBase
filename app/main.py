@@ -1,3 +1,4 @@
+import secrets
 import time
 import uuid
 import httpx
@@ -57,6 +58,9 @@ async def lifespan(app: FastAPI):
         app.state.redis = redis_client
     except Exception as e:
         logger.warning("Redis недоступен (%s) — продолжаем без кеша", e)
+
+    # Генерация канарейки
+    app.state.canary = secrets.token_hex(4)  # например, "a7f3b9e2"
 
     yield
 

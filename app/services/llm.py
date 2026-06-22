@@ -45,21 +45,29 @@ class LLMService:
         user_messages = [m for m in req.messages if m.role == "user"]
         return user_messages[-1].content if user_messages else ""
 
-    def _log_llm_completion(self, raw_prompt: str, model: str, usage: Usage|None, finish_reason: str|None, latency_ms: float) -> None:
-        """Логирование завершения вызова LLM."""
+    def _log_llm_completion(
+        self,
+        raw_prompt: str,
+        response_content: str | None,
+        model: str,
+        usage: Usage | None,
+        finish_reason: str | None,
+        latency_ms: float
+    ) -> None:
+        """Логирование завершения вызова LLM с маскировкой PII в промпте и ответе."""
         logger = structlog.get_logger()
-        logger.info(
-            "llm_request_completed",
-            model=model,
-            input_tokens=usage.prompt_tokens if usage else 0,
-            output_tokens=usage.completion_tokens if usage else 0,
-            latency_ms=round(latency_ms, 2),
-            finish_reason=finish_reason or "stop",
-            # request_id автоматически подхватится из контекста, если вдруг нет - можно явно добавить:
-            # request_id=structlog.contextvars.get_contextvars().get("request_id"),
-            prompt_hash=prompt_hash(raw_prompt) if raw_prompt else None,
-            prompt_preview=redact_pii(raw_prompt)[:120] if raw_prompt else None
-        )
+        log_data = {
+            "model": model,
+            "input_tokens": usage.prompt_tokens if usage else 0,
+            "output_tokens": usage.completion_tokens if usage else 0,
+            "latency_ms": round(latency_ms, 2),
+            "finish_reason": finish_reason or "stop",
+            "prompt_hash": prompt_hash(raw_prompt) if raw_prompt else None,
+            "prompt_preview": redact_pii(raw_prompt)[:120] if raw_prompt else None,
+        }
+        if response_content is not None:
+            log_data["response_preview"] = redact_pii(response_content)[:120] if response_content else None
+        logger.info("llm_request_completed", **log_data)
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=10), reraise=True)
     async def _call(self, req: ChatRequest) -> ChatResponse:
@@ -111,9 +119,15 @@ class LLMService:
         resp = await self._call(req)
         latency_ms = (perf_counter() - start) * 1000
         resp.cached = False
-        self._log_llm_completion(raw_prompt=raw_prompt, model=resp.model, usage=resp.usage, finish_reason=resp.finish_reason, latency_ms=latency_ms)
+        self._log_llm_completion(
+            raw_prompt=raw_prompt,
+            response_content=resp.content,
+            model=resp.model,
+            usage=resp.usage,
+            finish_reason=resp.finish_reason,
+            latency_ms=latency_ms
+        )
         return resp
-
 
     async def create_stream(self, req: ChatRequest):
         """Создаёт стрим и выбрасывает LLMError при ошибках."""
@@ -173,6 +187,7 @@ class LLMService:
             latency_ms = (perf_counter() - self._stream_start_time) * 1000
             self._log_llm_completion(
                 raw_prompt=self._stream_prompt,
+                response_content=None,          # полный ответ не сохраняется для стрима
                 model=model or "unknown",
                 usage=usage,
                 finish_reason=finish_reason,
