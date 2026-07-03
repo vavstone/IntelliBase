@@ -23,6 +23,9 @@ services:
     environment:
       REDIS_URL: redis://redis:6379/0
       PHOENIX_COLLECTOR_ENDPOINT: http://phoenix:4317
+      DATABASE_URL: postgresql+asyncpg://chat:${POSTGRES_PASSWORD:-pswd}@db:5433/intellibase
+      # Если вы хотите, чтобы приложение сразу использовало postgres-репозиторий:
+      CHAT_REPOSITORY: postgres
     depends_on:
       redis:
         condition: service_healthy
@@ -43,6 +46,8 @@ services:
     image: redis:7.4-alpine
     container_name: llm-redis
     restart: unless-stopped
+    ports:
+      - "6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -51,6 +56,26 @@ services:
       timeout: 3s
       retries: 3
 
+  db:
+    image: postgres:16-alpine
+    container_name: llm-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: chat
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pswd}
+      POSTGRES_DB: intellibase
+    ports:
+      - "5432:5432"                # для локального доступа, можно убрать в проде
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U chat -d intellibase" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
 volumes:
   redis_data:
   phoenix_data:
+  postgres_data:

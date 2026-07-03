@@ -10,6 +10,7 @@ def test_chat_request_valid():
             {"role": "user", "content": "Hi"}
         ],
         model="gpt-4o-mini",
+        provider="openai",
         temperature=0.5,
         max_tokens=100
     )
@@ -21,7 +22,8 @@ def test_chat_request_first_message_not_assistant():
     with pytest.raises(ValidationError, match="Первое сообщение не может быть от assistant"):
         ChatRequest(
             messages=[{"role": "assistant", "content": "I'm assistant"}],
-            model="gpt-4o-mini"
+            model="gpt-4o-mini",
+            provider="openai"
         )
 
 
@@ -29,7 +31,8 @@ def test_chat_request_message_min_length():
     with pytest.raises(ValidationError, match="String should have at least 1 character"):
         ChatRequest(
             messages=[{"role": "user", "content": ""}],
-            model="gpt-4o-mini"
+            model="gpt-4o-mini",
+            provider="openai"
         )
 
 
@@ -38,7 +41,8 @@ def test_chat_request_message_max_length():
     with pytest.raises(ValidationError, match="String should have at most 100000 characters"):
         ChatRequest(
             messages=[{"role": "user", "content": long_content}],
-            model="gpt-4o-mini"
+            model="gpt-4o-mini",
+            provider="openai"
         )
 
 

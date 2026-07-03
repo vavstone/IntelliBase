@@ -10,8 +10,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from openai import AsyncOpenAI
 from redis.asyncio import Redis
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
-from app.deps.providers import get_settings
+from app.core.config import get_settings
 from app.core.exceptions import (
     LLMAuthError,
     LLMContentFilterError,
@@ -21,6 +22,7 @@ from app.core.exceptions import (
     LLMUnsupportedCountryError
 )
 from app.routers import chat, health, models
+from app.chat.routes import router as chat_router
 from app.observability.tracing import setup_tracing
 from app.observability.logger import setup_logging
 
@@ -44,8 +46,24 @@ async def lifespan(app: FastAPI):
     )
     app.state.http_client = http_client
 
-    app.state.llm = AsyncOpenAI(
+
+    app.state.llm_ollama = AsyncOpenAI(
+        base_url=settings.llm.ollama_base_url,
+        api_key="ollama",
+        http_client=http_client,
+        timeout=settings.llm.request_timeout,
+        max_retries=settings.llm.max_retries,
+    )
+    app.state.llm_openai = AsyncOpenAI(
+        base_url=settings.llm.openai_base_url,
         api_key=settings.llm.openai_api_key.get_secret_value(),
+        http_client=http_client,
+        timeout=settings.llm.request_timeout,
+        max_retries=settings.llm.max_retries,
+    )
+    app.state.llm_openrouter = AsyncOpenAI(
+        base_url=settings.llm.openrouter_base_url,
+        api_key=settings.llm.openrouter_api_key.get_secret_value(),
         http_client=http_client,
         timeout=settings.llm.request_timeout,
         max_retries=settings.llm.max_retries,
@@ -59,19 +77,38 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("Redis недоступен (%s) — продолжаем без кеша", e)
 
+    # Postgres: ленивый engine — не падаем, если БД недоступна на старте.
+    app.state.async_engine = None
+    app.state.session_factory = None
+    try:
+        engine = create_async_engine(settings.database_url, pool_pre_ping=True)
+        app.state.async_engine = engine
+        app.state.session_factory = async_sessionmaker(
+            engine, expire_on_commit=False
+        )
+    except Exception as e:
+        logger.warning("Postgres engine не создан (%s) — postgres-репозиторий недоступен", e)
+
+
     # Генерация канарейки
     app.state.canary = secrets.token_hex(4)  # например, "a7f3b9e2"
 
     yield
 
     try:
-        await app.state.llm.close()
-        await app.state.http_client.aclose()
+        await app.state.llm_ollama.close()
+        await app.state.llm_openai.close()
+        await app.state.llm_openrouter.close()
     except Exception:
         pass
     if app.state.redis is not None:
         try:
             await app.state.redis.close()
+        except Exception:
+            pass
+    if app.state.async_engine is not None:
+        try:
+            await app.state.async_engine.dispose()
         except Exception:
             pass
 
@@ -172,5 +209,6 @@ async def handle_validation(request: Request, exc: RequestValidationError):
 
 
 app.include_router(chat.router)
+app.include_router(chat_router)
 app.include_router(models.router)
 app.include_router(health.router)

@@ -1,13 +1,25 @@
 import pytest
-import json
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 from app.services.llm import LLMService
 from app.schemas.chat import ChatRequest, ChatResponse, Usage
-from app.core.exceptions import LLMRateLimitError, LLMError
+from app.core.exceptions import LLMRateLimitError
 
+@pytest.fixture
+def mock_ollama():
+    """Фикстура для замоканного OpenAI клиента."""
+    mock = AsyncMock()
+    mock.chat.completions.create = AsyncMock()
+    return mock
 
 @pytest.fixture
 def mock_openai():
+    """Фикстура для замоканного OpenAI клиента."""
+    mock = AsyncMock()
+    mock.chat.completions.create = AsyncMock()
+    return mock
+
+@pytest.fixture
+def mock_openrouter():
     """Фикстура для замоканного OpenAI клиента."""
     mock = AsyncMock()
     mock.chat.completions.create = AsyncMock()
@@ -24,17 +36,18 @@ def mock_cache():
 
 
 @pytest.fixture
-def llm_service(mock_openai, mock_cache):
+def llm_service(mock_ollama, mock_openai, mock_openrouter, mock_cache):
     """Сервис с замоканными зависимостями."""
-    return LLMService(llm=mock_openai, cache=mock_cache, ttl=3600)
+    return LLMService(llm_ollama=mock_ollama, llm_openai=mock_openai, llm_openrouter=mock_openrouter, cache=mock_cache, ttl=3600)
 
 
 def test_llm_service_key_excludes_fields():
     """Проверяем, что ключ кеша не зависит от user_id, session_id и stream."""
-    service = LLMService(llm=None, cache=None, ttl=3600)
+    service = LLMService(llm_ollama=None, llm_openai=None, llm_openrouter=None, cache=None, ttl=3600)
     base_req = ChatRequest(
         messages=[{"role": "user", "content": "Hello"}],
         model="gpt-4o-mini",
+        provider="openai",
         temperature=0.0,
         max_tokens=100
     )
@@ -63,7 +76,7 @@ def test_llm_service_key_excludes_fields():
 
 
 def test_llm_service_extract_prompt():
-    service = LLMService(llm=None, cache=None, ttl=3600)
+    service = LLMService(llm_ollama=None, llm_openai=None, llm_openrouter=None, cache=None, ttl=3600)
     req = ChatRequest(
         messages=[
             {"role": "system", "content": "System"},
@@ -71,7 +84,8 @@ def test_llm_service_extract_prompt():
             {"role": "assistant", "content": "Assist"},
             {"role": "user", "content": "User2"},
         ],
-        model="gpt-4o-mini"
+        model="gpt-4o-mini",
+        provider="openai"
     )
     prompt = service._extract_prompt(req)
     assert prompt == "User2"
@@ -79,7 +93,8 @@ def test_llm_service_extract_prompt():
     # Если нет user-сообщений – возвращаем пустую строку
     req_no_user = ChatRequest(
         messages=[{"role": "system", "content": "System"}],
-        model="gpt-4o-mini"
+        model="gpt-4o-mini",
+        provider="openai"
     )
     assert service._extract_prompt(req_no_user) == ""
 
@@ -99,6 +114,7 @@ async def test_llm_complete_cache_hit(mocker, llm_service, mock_openai, mock_cac
     req = ChatRequest(
         messages=[{"role": "user", "content": "Hello"}],
         model="gpt-4o-mini",
+        provider="openai",
         temperature=0.0  # кешируем только при temperature=0
     )
 
@@ -131,6 +147,7 @@ async def test_llm_complete_cache_miss(mocker, llm_service, mock_openai, mock_ca
     req = ChatRequest(
         messages=[{"role": "user", "content": "Hello"}],
         model="gpt-4o-mini",
+        provider="openai",
         temperature=0.0
     )
 
@@ -188,6 +205,7 @@ async def test_llm_complete_retry_on_rate_limit(mocker, llm_service, mock_openai
     req = ChatRequest(
         messages=[{"role": "user", "content": "Hello"}],
         model="gpt-4o-mini",
+        provider="openai",
         temperature=0.0
     )
 
@@ -222,6 +240,7 @@ async def test_llm_complete_retry_exhausted(mocker, llm_service, mock_openai, mo
     req = ChatRequest(
         messages=[{"role": "user", "content": "Hello"}],
         model="gpt-4o-mini",
+        provider="openai",
         temperature=0.0
     )
 

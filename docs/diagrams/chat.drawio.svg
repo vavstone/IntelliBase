@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 520" width="100%" height="auto" style="background: transparent;">
+  <defs>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#333333" />
+    </marker>
+  </defs>
+
+  <!-- Блок: Клиент -->
+  <rect x="20" y="140" width="140" height="70" rx="8" fill="#eef2ff" stroke="#6366f1" stroke-width="2" />
+  <text x="90" y="165" fill="#333333" font-family="Helvetica, Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle">Клиент</text>
+  <text x="90" y="185" fill="#333333" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle">Telegram / Web</text>
+
+  <!-- Стрелка от Клиента к FastAPI -->
+  <line x1="160" y1="175" x2="210" y2="175" stroke="#333333" stroke-width="2" marker-end="url(#arrowhead)" />
+
+  <!-- Блок: FastAPI routes -->
+  <rect x="220" y="130" width="160" height="90" rx="8" fill="#ecfdf5" stroke="#10b981" stroke-width="2" />
+  <text x="300" y="155" fill="#333333" font-family="Helvetica, Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle">API Gateway / Router</text>
+  <text x="300" y="175" fill="#333333" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle">FastAPI routes.py</text>
+  <text x="300" y="195" fill="#333333" font-family="Helvetica, Arial, sans-serif" font-size="11" text-anchor="middle">auth, rate limiting</text>
+
+  <!-- Стрелка от FastAPI к ChatService -->
+  <line x1="380" y1="175" x2="430" y2="175" stroke="#333333" stroke-width="2" marker-end="url(#arrowhead)" />
+
+  <!-- Блок: ChatService -->
+  <rect x="440" y="120" width="180" height="110" rx="8" fill="#fefce8" stroke="#f59e0b" stroke-width="2" />
+  <text x="530" y="148" fill="#333333" font-family="Helvetica, Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle">ChatService</text>
+  <text x="530" y="170" fill="#333333" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle">Бизнес-логика</text>
+  <text x="530" y="190" fill="#333333" font-family="Helvetica, Arial, sans-serif" font-size="11" text-anchor="middle">Sliding window context</text>
+  <text x="530" y="210" fill="#333333" font-family="Helvetica, Arial, sans-serif" font-size="11" text-anchor="middle">Сохранение сообщений</text>
+
+  <!-- От ChatService к двум направлениям: вниз к репозиторию и вправо к LLM -->
+  <!-- Сначала вниз к репозиторию -->
+  <line x1="480" y1="230" x2="480" y2="280" stroke="#333333" stroke-width="2" marker-end="url(#arrowhead)" />
+  <text x="470" y="258" fill="#333333" font-family="Helvetica, Arial, sans-serif" font-size="11" text-anchor="end">хранилище</text>
+
+  <!-- Блок: ChatRepository (Protocol) -->
+  <rect x="380" y="280" width="200" height="60" rx="8" fill="#fefce8" stroke="#f59e0b" stroke-width="2" />
+  <text x="480" y="305" fill="#333333" font-family="Helvetica, Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle">ChatRepository (Protocol)</text>
+  <text x="480" y="325" fill="#333333" font-family="Helvetica, Arial, sans-serif" font-size="11" text-anchor="middle">абстракция хранилища</text>
+
+  <!-- От репозитория к двум реализациям: JSON и PostgreSQL -->
+  <line x1="430" y1="340" x2="310" y2="380" stroke="#333333" stroke-width="2" marker-end="url(#arrowhead)" />
+  <line x1="530" y1="340" x2="650" y2="380" stroke="#333333" stroke-width="2" marker-end="url(#arrowhead)" />
+
+  <!-- Блок: JsonChatRepository -->
+  <rect x="180" y="380" width="240" height="70" rx="8" fill="#ecfdf5" stroke="#10b981" stroke-width="2" />
+  <text x="300" y="405" fill="#333333" font-family="Helvetica, Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle">JsonChatRepository</text>
+  <text x="300" y="425" fill="#333333" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle">JSONL-файлы</text>
+  <text x="300" y="442" fill="#333333" font-family="Helvetica, Arial, sans-serif" font-size="11" text-anchor="middle">./var/chats/{chat_id}/</text>
+
+  <!-- Блок: PostgresChatRepository -->
+  <rect x="520" y="380" width="240" height="70" rx="8" fill="#ecfdf5" stroke="#10b981" stroke-width="2" />
+  <text x="640" y="405" fill="#333333" font-family="Helvetica, Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle">PostgresChatRepository</text>
+  <text x="640" y="425" fill="#333333" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle">asyncpg + SQLAlchemy</text>
+  <text x="640" y="442" fill="#333333" font-family="Helvetica, Arial, sans-serif" font-size="11" text-anchor="middle">таблицы chats, chat_messages</text>
+
+  <!-- От ChatService вправо к LLM слою -->
+  <line x1="620" y1="175" x2="700" y2="175" stroke="#333333" stroke-width="2" marker-end="url(#arrowhead)" />
+  <text x="660" y="168" fill="#333333" font-family="Helvetica, Arial, sans-serif" font-size="11" text-anchor="middle">LLM</text>
+
+  <!-- Блок: LLM клиенты -->
+  <rect x="710" y="110" width="200" height="130" rx="8" fill="#eef2ff" stroke="#6366f1" stroke-width="2" />
+  <text x="810" y="138" fill="#333333" font-family="Helvetica, Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle">LLM клиенты</text>
+  <text x="810" y="158" fill="#333333" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle">AsyncOpenAI</text>
+  <text x="810" y="178" fill="#333333" font-family="Helvetica, Arial, sans-serif" font-size="11" text-anchor="middle">OpenAI</text>
+  <text x="810" y="198" fill="#333333" font-family="Helvetica, Arial, sans-serif" font-size="11" text-anchor="middle">Ollama</text>
+  <text x="810" y="218" fill="#333333" font-family="Helvetica, Arial, sans-serif" font-size="11" text-anchor="middle">OpenRouter</text>
+
+  <!-- От LLM клиентов к провайдерам (справа) -->
+  <line x1="910" y1="160" x2="960" y2="160" stroke="#333333" stroke-width="2" marker-end="url(#arrowhead)" />
+  <line x1="910" y1="190" x2="960" y2="190" stroke="#333333" stroke-width="2" marker-end="url(#arrowhead)" />
+  <line x1="910" y1="220" x2="960" y2="220" stroke="#333333" stroke-width="2" marker-end="url(#arrowhead)" />
+
+  <!-- Блоки провайдеров (можно объединить в один) -->
+  <rect x="970" y="110" width="110" height="130" rx="8" fill="#fefce8" stroke="#f59e0b" stroke-width="2" />
+  <text x="1025" y="138" fill="#333333" font-family="Helvetica, Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle">Провайдеры</text>
+  <text x="1025" y="165" fill="#333333" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle">OpenAI API</text>
+  <text x="1025" y="195" fill="#333333" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle">Ollama</text>
+  <text x="1025" y="225" fill="#333333" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle">OpenRouter</text>
+</svg>

@@ -19,7 +19,7 @@ from openai import AsyncOpenAI
 # Добавляем корневую папку проекта в sys.path для импорта модулей
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from app.core.config import Settings, LLMSettings
+from app.core.config import Settings
 from app.services.llm import LLMService
 from app.schemas.chat import ChatRequest, Message
 
@@ -44,6 +44,7 @@ async def get_answer_from_service(service: LLMService, question: str) -> str:
             Message(role="user", content=question),
         ],
         model=Settings().llm.default_model,  # используем модель из настроек
+        provider=Settings().llm.default_provider, # используем провайдер из настроек
         temperature=0.0,  # детерминированный вывод
         stream=False,
     )
@@ -144,14 +145,14 @@ async def run_evaluation(
         proxy=settings.proxy_url,
         timeout=httpx.Timeout(settings.llm.request_timeout, connect=5.0),
     )
-    llm_client = AsyncOpenAI(
+    llm_openai = AsyncOpenAI(
         api_key=settings.llm.openai_api_key.get_secret_value(),
         http_client=http_client,
         timeout=settings.llm.request_timeout,
         max_retries=settings.llm.max_retries,
     )
     # Кеш не используем в eval, чтобы всегда получать свежие ответы
-    service = LLMService(llm=llm_client, cache=None, ttl=0)
+    service = LLMService(llm_openai=llm_openai, llm_ollama=None, llm_openrouter=None, cache=None, ttl=0)
 
     # Инициализируем judge-клиент (отдельный, можно использовать тот же клиент, но с другой моделью)
     judge_client = AsyncOpenAI(
@@ -202,7 +203,7 @@ async def run_evaluation(
 
     # Закрываем клиенты
     await http_client.aclose()
-    await llm_client.close()
+    await llm_openai.close()
     await judge_client.close()
 
     # Вычисляем агрегаты

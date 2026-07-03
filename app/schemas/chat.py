@@ -33,7 +33,8 @@ class ChatRequest(BaseModel):
                         {"role": "system", "content": "Ты полезный ассистент."},
                         {"role": "user", "content": "Напиши hello world на Python"},
                     ],
-                    "model": "gpt-4o-mini",
+                    "model": "gpt-4.1-nano",
+                    "provider": "openai",
                     "temperature": 0.2,
                 }
             ]
@@ -41,7 +42,8 @@ class ChatRequest(BaseModel):
     )
 
     messages: Annotated[list[Message], Field(min_length=1, max_length=50)]
-    model: str = "gpt-4o-mini"
+    model: str = "gpt-4.1-nano"
+    provider: Literal["openai", "ollama", "openrouter"] = "ollama"
     temperature: Annotated[float, Field(ge=0.0, le=2.0)] = 0.0
     max_tokens: Annotated[int, Field(ge=1, le=16_000)] = 1024
     stream: bool = False
@@ -81,13 +83,13 @@ class ChatDelta(BaseModel):
 
 class OpenAIParams(BaseModel):
     provider: Literal["openai"]
-    model: str = "gpt-4o-mini"
+    model: str = "gpt-4.1-nano"
     seed: int | None = None
 
 
 class OllamaParams(BaseModel):
     provider: Literal["ollama"]
-    model: str = "llama3.1:8b"
+    model: str = "gemma3:1b"
     base_url: str = "http://localhost:11434/v1"
 
 

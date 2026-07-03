@@ -111,6 +111,6 @@ async def chat_completions_stream(req: ChatRequest, service: LLMServiceDep, requ
 
     # Если всё ок – возвращаем StreamingResponse с генератором
     return StreamingResponse(
-        service.iterate_stream(stream),
+        service.iterate_stream(stream, req.provider, req.model),
         media_type="text/event-stream"
     )

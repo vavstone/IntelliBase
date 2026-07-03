@@ -3,7 +3,7 @@ from pydantic import BaseModel
 
 class ModelInfo(BaseModel):
     id: str
-    provider: Literal["openai", "ollama", "anthropic"] = "openai"
+    provider: Literal["openai", "ollama", "openrouter"] = "ollama"
     input_per_1m: float = 0.0
     output_per_1m: float = 0.0
     context_window: int | None = None
