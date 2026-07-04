@@ -34,8 +34,6 @@ logger = logging.getLogger("llm")
 
 class LLMService:
     def __init__(self, llm_ollama, llm_openai, llm_openrouter, cache, ttl: int = 3600):
-        self._stream_prompt = None
-        self._stream_start_time = None
         self.llm_ollama = llm_ollama
         self.llm_openai = llm_openai
         self.llm_openrouter = llm_openrouter
@@ -167,12 +165,15 @@ class LLMService:
         return resp
 
     async def create_stream(self, req: ChatRequest):
-        """Создаёт стрим и выбрасывает LLMError при ошибках."""
-        self._stream_start_time = perf_counter()
-        self._stream_prompt = self._extract_prompt(req)
+        """Создаёт стрим и выбрасывает LLMError при ошибках.
+        Возвращает кортеж (stream, start_time, prompt) — состояние на запрос,
+        а не на инстанс, чтобы избежать гонки данных при конкурентных запросах.
+        """
+        start_time = perf_counter()
+        prompt = self._extract_prompt(req)
         try:
             llm = self.get_llm(req.provider)
-            return await llm.chat.completions.create(
+            stream = await llm.chat.completions.create(
                 model=req.model or "unknown",
                 messages=[m.model_dump() for m in req.messages],
                 temperature=req.temperature,
@@ -180,6 +181,7 @@ class LLMService:
                 stream=True,
                 stream_options={"include_usage": True},
             )
+            return stream, start_time, prompt
         except RateLimitError as e:
             raise LLMRateLimitError(str(e)) from e
         except AuthenticationError as e:
@@ -196,7 +198,7 @@ class LLMService:
         except APIConnectionError as e:
             raise LLMError(f"connection error: {e}") from e
 
-    async def iterate_stream(self, stream, provider, model):
+    async def iterate_stream(self, stream, provider, model, start_time, prompt):
         """Итерирует по стриму и выдаёт SSE-совместимые строки."""
         #logger = structlog.get_logger()
         usage = None
@@ -222,9 +224,9 @@ class LLMService:
         yield "data: [DONE]\n\n"
 
         if usage:
-            latency_ms = (perf_counter() - self._stream_start_time) * 1000
+            latency_ms = (perf_counter() - start_time) * 1000
             self._log_llm_completion(
-                raw_prompt=self._stream_prompt,
+                raw_prompt=prompt,
                 response_content=None,          # полный ответ не сохраняется для стрима
                 model=model,
                 provider=provider,

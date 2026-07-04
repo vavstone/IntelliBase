@@ -107,10 +107,10 @@ async def chat_completions_stream(req: ChatRequest, service: LLMServiceDep, requ
 
     # Пытаемся создать стрим – здесь может выброситься исключение
     # Если исключение выброшено, FastAPI вызовет @app.exception_handler(LLMError)
-    stream = await service.create_stream(req)
+    stream, start_time, prompt = await service.create_stream(req)
 
     # Если всё ок – возвращаем StreamingResponse с генератором
     return StreamingResponse(
-        service.iterate_stream(stream, req.provider, req.model),
+        service.iterate_stream(stream, req.provider, req.model, start_time, prompt),
         media_type="text/event-stream"
     )
