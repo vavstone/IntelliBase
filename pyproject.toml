@@ -21,7 +21,9 @@ dependencies = [
     "aiofiles==25.1.0",
     "asyncpg==0.31.0",
     "alembic==1.18.4",
-    "tiktoken==0.13.0"
+    "tiktoken==0.13.0",
+    "aiogram>=3.27.0",
+    "telegramify_markdown==1.2.0"
 ]
 
 [project.optional-dependencies]
