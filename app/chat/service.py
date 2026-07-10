@@ -142,20 +142,22 @@ class ChatService:
 
         # 4. Стримим
         buffer = ""
-
         usage = None
         llm = self.get_llm(chat.provider)
 
-        stream = await llm.chat.completions.create(
-            model=chat.model or self.default_model,
-            messages=messages,
-            stream=True,
-            stream_options={"include_usage": True},
-        )
+        # stream_options — только для OpenAI-совместимых провайдеров
+        extra = {}
+        if chat.provider in ("openai", "openrouter"):
+            extra["stream_options"] = {"include_usage": True}
 
         try:
+            stream = await llm.chat.completions.create(
+                model=chat.model or self.default_model,
+                messages=messages,
+                stream=True,
+                **extra,
+            )
             async for chunk in stream:
-                # Сохраняем usage, если он есть (обычно в последнем чанке)
                 if hasattr(chunk, "usage") and chunk.usage:
                     usage = chunk.usage
 
@@ -168,13 +170,11 @@ class ChatService:
                     yield {"type": "token", "delta": content}
         except Exception as exc:
             logger.warning(
-                "stream interrupted chat_id=%s err=%s saved_chars=%d",
-                chat_id,
-                exc,
-                len(buffer),
+                "stream failed chat_id=%s err=%s saved_chars=%d",
+                chat_id, exc, len(buffer),
             )
             if buffer:
-                saved = await self.repository.append_message(
+                await self.repository.append_message(
                     chat_id,
                     ChatMessage(
                         chat_id=chat_id,
@@ -183,11 +183,9 @@ class ChatService:
                         tokens=usage.total_tokens if usage else None,
                     ),
                 )
-                yield {
-                    "type": "message_saved",
-                    "message_id": str(saved.id),
-                }
-            raise
+            # Отдаём ошибку как токен, чтобы бот показал пользователю
+            yield {"type": "token", "delta": f"\n\n[Ошибка: {exc}]"}
+            return
 
         # 5. Успешное завершение — сохраняем накопленный ответ
         if buffer:

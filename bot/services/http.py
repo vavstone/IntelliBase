@@ -10,11 +10,20 @@ from bot.config import BotSettings
 
 def build_http_client(settings: BotSettings) -> httpx.AsyncClient:
     """Создаёт httpx.AsyncClient с базовыми timeouts и connection limits.
-    Если в настройках задан proxy_url, пробрасывает его.
+    Прокси используется только для внешних URL (не localhost/127.0.0.1),
+    чтобы внешний прокси-сервер не пытался достучаться до локального бэкенда.
     """
+    # Прокси включаем только если backend НЕ на localhost
+    proxy = settings.proxy_url
+    if proxy and settings.backend_url:
+        from urllib.parse import urlparse
+        host = urlparse(settings.backend_url).hostname or ""
+        if host in ("localhost", "127.0.0.1", "0.0.0.0"):
+            proxy = None  # localhost — ходим напрямую
+
     return httpx.AsyncClient(
         base_url=settings.backend_url,
-        proxy=settings.proxy_url,  # None — без прокси, иначе http://user:pass@host:port
+        proxy=proxy,
         timeout=httpx.Timeout(
             connect=3.0,
             read=60.0,

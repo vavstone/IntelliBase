@@ -28,16 +28,15 @@ async def main() -> None:
     if not token:
         raise ValueError("BOT_TOKEN is empty — задайте токен в .env")
 
-    # Всегда создаём сессию (с прокси или без)
-    from aiogram.client.session.aiohttp import AiohttpSession
-    bot_session = AiohttpSession(
-        proxy=settings.proxy_url or None,  # None — без прокси
-    )
+    # Прокси для Telegram API: если задан PROXY_URL — создаём AiohttpSession
+    # с ним. aiohttp-socks (уже в зависимостях) поддерживает HTTP-прокси.
     if settings.proxy_url:
-        log.info("Bot using proxy for Telegram API: %s", settings.proxy_url)
-
-    bot = Bot(token=token, session=bot_session)
-    log.info("Bot created — username: @%s", (await bot.get_me()).username)
+        from aiogram.client.session.aiohttp import AiohttpSession
+        bot_session = AiohttpSession(proxy=settings.proxy_url)
+        log.info("Using proxy for Telegram API: %s", settings.proxy_url)
+        bot = Bot(token=token, session=bot_session)
+    else:
+        bot = Bot(token=token)
 
     dp = Dispatcher(storage=MemoryStorage())
     http = build_http_client(settings)
@@ -46,11 +45,11 @@ async def main() -> None:
     register_routers(dp)
 
     try:
-        await dp.start_polling(bot=bot)
+        log.info("Starting polling...")
+        await dp.start_polling(bot, drop_pending_updates=True)
     finally:
         await backend.aclose()
-        await bot_session.close()
-        await bot.close()
+        await bot.session.close()
 
 
 if __name__ == "__main__":

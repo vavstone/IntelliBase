@@ -102,6 +102,8 @@ async def stream_to_chat(
 
     if buffer:
         await _send_final(message, buffer)
+    else:
+        await message.answer("Не получилось получить ответ от модели. Попробуйте ещё раз.")
     return buffer
 
 
@@ -151,15 +153,17 @@ async def _stream_via_edit_text(
     if buffer:
         md = _to_tg_markdown(buffer)
         try:
-            await sent.edit_text(
-                md,
-                parse_mode=ParseMode.MARKDOWN_V2,
-            )
+            await sent.edit_text(md, parse_mode=ParseMode.MARKDOWN_V2)
         except TelegramBadRequest:
             try:
                 await sent.edit_text(buffer)
             except (TelegramBadRequest, TelegramRetryAfter):
                 pass
         except TelegramRetryAfter:
+            pass
+    else:
+        try:
+            await sent.edit_text("Не получилось получить ответ от модели.")
+        except (TelegramBadRequest, TelegramRetryAfter):
             pass
     return buffer

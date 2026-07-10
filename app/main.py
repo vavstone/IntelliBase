@@ -39,32 +39,40 @@ settings = get_settings()
 async def lifespan(app: FastAPI):
     setup_tracing()
 
-    # Создаём HTTP-клиент с прокси (если задан)
-    http_client = httpx.AsyncClient(
-        proxy=settings.proxy_url,  # может быть None
-        timeout=httpx.Timeout(settings.llm.request_timeout, connect=5.0),
-    )
-    app.state.http_client = http_client
+    # HTTP-клиент для локальной Ollama — БЕЗ прокси (внешний прокси
+    # не достучится до localhost). Таймауты и limits — общие.
+    _timeout = httpx.Timeout(settings.llm.request_timeout, connect=5.0)
+    _limits = httpx.Limits(max_connections=50, max_keepalive_connections=10)
 
+    http_ollama = httpx.AsyncClient(timeout=_timeout, limits=_limits)
+    app.state.http_ollama = http_ollama
+
+    # HTTP-клиент для внешних API — С прокси
+    http_external = httpx.AsyncClient(
+        proxy=settings.proxy_url,
+        timeout=_timeout,
+        limits=_limits,
+    )
+    app.state.http_external = http_external
 
     app.state.llm_ollama = AsyncOpenAI(
         base_url=settings.llm.ollama_base_url,
         api_key="ollama",
-        http_client=http_client,
+        http_client=http_ollama,
         timeout=settings.llm.request_timeout,
         max_retries=settings.llm.max_retries,
     )
     app.state.llm_openai = AsyncOpenAI(
         base_url=settings.llm.openai_base_url,
         api_key=settings.llm.openai_api_key.get_secret_value(),
-        http_client=http_client,
+        http_client=http_external,
         timeout=settings.llm.request_timeout,
         max_retries=settings.llm.max_retries,
     )
     app.state.llm_openrouter = AsyncOpenAI(
         base_url=settings.llm.openrouter_base_url,
         api_key=settings.llm.openrouter_api_key.get_secret_value(),
-        http_client=http_client,
+        http_client=http_external,
         timeout=settings.llm.request_timeout,
         max_retries=settings.llm.max_retries,
     )
@@ -99,6 +107,11 @@ async def lifespan(app: FastAPI):
         await app.state.llm_ollama.close()
         await app.state.llm_openai.close()
         await app.state.llm_openrouter.close()
+    except Exception:
+        pass
+    try:
+        await app.state.http_ollama.aclose()
+        await app.state.http_external.aclose()
     except Exception:
         pass
     if app.state.redis is not None:

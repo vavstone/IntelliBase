@@ -49,4 +49,4 @@ dev-dependencies = [
 Source = "https://github.com/vavstone/IntelliBase"
 
 [tool.setuptools]
-packages = ["app"]
+packages = ["app", "bot"]
