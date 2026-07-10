@@ -19,7 +19,7 @@ class ChatService:
         llm_openrouter,
         context_window: int = 10,
         default_provider: str = "ollama",
-        default_model: str = "gemma3:1b"
+        default_model: str = "qwen2.5:3b"
     ):
         self.repository = repository
         self.llm_ollama = llm_ollama

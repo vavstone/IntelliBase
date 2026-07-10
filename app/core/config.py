@@ -15,7 +15,7 @@ class LLMSettings(BaseSettings):
     openai_base_url: str = "https://api.openai.com/v1"
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     default_provider: Literal["openai", "ollama", "openrouter"] = "ollama"
-    default_model: str = "gemma3:1b"
+    default_model: str = "qwen2.5:3b"
     request_timeout: float = 30.0
     max_retries: int = 3
 

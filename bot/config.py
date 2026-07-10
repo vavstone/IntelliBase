@@ -20,6 +20,7 @@ class BotSettings(BaseSettings):
     bot_token: SecretStr
     backend_url: str = "http://app:8000"
     bot_admin_ids: Annotated[list[int], NoDecode] = []
+    proxy_url: str | None = None
 
     @field_validator("bot_admin_ids", mode="before")
     @classmethod

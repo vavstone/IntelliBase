@@ -23,7 +23,8 @@ dependencies = [
     "alembic==1.18.4",
     "tiktoken==0.13.0",
     "aiogram>=3.27.0",
-    "telegramify_markdown==1.2.0"
+    "telegramify_markdown==1.2.0",
+    "aiohttp-socks>=0.11.0",
 ]
 
 [project.optional-dependencies]

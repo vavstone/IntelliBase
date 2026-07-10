@@ -9,9 +9,12 @@ from bot.config import BotSettings
 
 
 def build_http_client(settings: BotSettings) -> httpx.AsyncClient:
-    """Создаёт httpx.AsyncClient с базовыми timeouts и connection limits."""
+    """Создаёт httpx.AsyncClient с базовыми timeouts и connection limits.
+    Если в настройках задан proxy_url, пробрасывает его.
+    """
     return httpx.AsyncClient(
         base_url=settings.backend_url,
+        proxy=settings.proxy_url,  # None — без прокси, иначе http://user:pass@host:port
         timeout=httpx.Timeout(
             connect=3.0,
             read=60.0,

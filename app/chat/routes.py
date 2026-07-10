@@ -9,7 +9,7 @@ from fastapi import (
     Query,
 )
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from app.chat.deps import ChatServiceDep
 from app.chat.domain import Chat, ChatMessage
@@ -21,14 +21,36 @@ router = APIRouter(prefix="/chats", tags=["chats"])
 _settings = get_settings()
 
 class CreateChatIn(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "owner_external_id": "user-123",
+                    "interface": "telegram",
+                    "provider": "ollama",
+                    "model": "qwen2.5:3b",
+                    "system_prompt": "Ты полезный ассистент.",
+                }
+            ]
+        }
+    )
+
     owner_external_id: str
     interface: str
-    provider: Literal["openai", "ollama", "openrouter"]
-    model: str
+    provider: Literal["openai", "ollama", "openrouter"] = "ollama"
+    model: str = "qwen2.5:3b"
     system_prompt: str | None = None
 
 
 class CreateChatOut(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {"chat_id": "550e8400-e29b-41d4-a716-446655440000"}
+            ]
+        }
+    )
+
     chat_id: UUID
 
 

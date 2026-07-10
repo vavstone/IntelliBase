@@ -23,9 +23,22 @@ log = logging.getLogger("bot")
 
 async def main() -> None:
     settings = get_bot_settings()
-    bot = Bot(
-        token=settings.bot_token.get_secret_value()
+
+    token = settings.bot_token.get_secret_value()
+    if not token:
+        raise ValueError("BOT_TOKEN is empty — задайте токен в .env")
+
+    # Всегда создаём сессию (с прокси или без)
+    from aiogram.client.session.aiohttp import AiohttpSession
+    bot_session = AiohttpSession(
+        proxy=settings.proxy_url or None,  # None — без прокси
     )
+    if settings.proxy_url:
+        log.info("Bot using proxy for Telegram API: %s", settings.proxy_url)
+
+    bot = Bot(token=token, session=bot_session)
+    log.info("Bot created — username: @%s", (await bot.get_me()).username)
+
     dp = Dispatcher(storage=MemoryStorage())
     http = build_http_client(settings)
     backend = BackendClient(http)
@@ -36,6 +49,7 @@ async def main() -> None:
         await dp.start_polling(bot=bot)
     finally:
         await backend.aclose()
+        await bot_session.close()
         await bot.close()
 
 

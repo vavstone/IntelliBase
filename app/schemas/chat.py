@@ -33,16 +33,18 @@ class ChatRequest(BaseModel):
                         {"role": "system", "content": "Ты полезный ассистент."},
                         {"role": "user", "content": "Напиши hello world на Python"},
                     ],
-                    "model": "gpt-4.1-nano",
-                    "provider": "openai",
-                    "temperature": 0.2,
+                    "model": "qwen2.5:3b",
+                    "provider": "ollama",
+                    "temperature": 0.0,
+                    "max_tokens": 1024,
+                    "stream": False,
                 }
             ]
         }
     )
 
     messages: Annotated[list[Message], Field(min_length=1, max_length=50)]
-    model: str = "gpt-4.1-nano"
+    model: str = "qwen2.5:3b"
     provider: Literal["openai", "ollama", "openrouter"] = "ollama"
     temperature: Annotated[float, Field(ge=0.0, le=2.0)] = 0.0
     max_tokens: Annotated[int, Field(ge=1, le=16_000)] = 1024
@@ -58,6 +60,26 @@ class ChatRequest(BaseModel):
 
 
 class ChatResponse(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "content": "Вот пример hello world на Python:\n\n```python\nprint(\"Hello, World!\")\n```",
+                    "model": "qwen2.5:3b",
+                    "usage": {
+                        "prompt_tokens": 42,
+                        "completion_tokens": 18,
+                        "total_tokens": 60,
+                        "estimated_cost_usd": 0.0,
+                    },
+                    "finish_reason": "stop",
+                    "cached": False,
+                    "request_id": "a1b2c3d4e5f6",
+                }
+            ]
+        }
+    )
+
     content: str
     model: str
     usage: Usage
@@ -89,7 +111,7 @@ class OpenAIParams(BaseModel):
 
 class OllamaParams(BaseModel):
     provider: Literal["ollama"]
-    model: str = "gemma3:1b"
+    model: str = "qwen2.5:3b"
     base_url: str = "http://localhost:11434/v1"
 
 
