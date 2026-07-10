@@ -147,7 +147,7 @@ class ChatService:
         llm = self.get_llm(chat.provider)
 
         stream = await llm.chat.completions.create(
-            model=self.default_model,
+            model=chat.model or self.default_model,
             messages=messages,
             stream=True,
             stream_options={"include_usage": True},
