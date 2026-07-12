@@ -6,7 +6,7 @@ from fastapi import (
     APIRouter,
     Form,
     HTTPException,
-    Query,
+    Query, UploadFile, File,
 )
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict
@@ -91,13 +91,14 @@ async def post_message(
     chat_id: UUID,
     chat_service: ChatServiceDep,
     content: str = Form(""),
+	media: UploadFile | None = File(None),
     # owner_external_id: Annotated[str | None, Header(alias="X-Owner-External-Id")] = None
 ) -> StreamingResponse:
 
     async def event_source():
         try:
             async for event in chat_service.send_message(
-                chat_id=chat_id, user_content=content,
+                chat_id=chat_id, user_content=content, media=media,
             ):
                 # service yield-ит уже структурированные dict-события:
                 # {"type":"token","delta":"..."} и

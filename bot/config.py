@@ -1,11 +1,12 @@
-"""
-Настройки Telegram-бота.
+"""Настройки Telegram-бота.
+
 Бот читает свои переменные из того же .env, что и backend, но через
 отдельный класс — чтобы не тащить LLM/DB-зависимости в bot-процесс.
 """
 
 from functools import lru_cache
 from typing import Annotated
+
 from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
@@ -19,7 +20,12 @@ class BotSettings(BaseSettings):
 
     bot_token: SecretStr
     backend_url: str = "http://app:8000"
+    # NoDecode — отключаем штатный JSON-парсинг list[int] для env-переменной,
+    # чтобы значение "123,456" попало в наш валидатор как строка.
     bot_admin_ids: Annotated[list[int], NoDecode] = []
+    # /notify-канал backend → bot. Токен — общий секрет.
+    internal_token: SecretStr = SecretStr("change-me")
+    bot_api_port: int = 9000
     proxy_url: str | None = None
 
     @field_validator("bot_admin_ids", mode="before")

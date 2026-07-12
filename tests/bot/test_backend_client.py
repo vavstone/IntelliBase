@@ -213,3 +213,99 @@ async def test_get_or_create_chat_raises_on_http_error():
 
     with pytest.raises(httpx.HTTPStatusError):
         await backend.get_or_create_chat("u", "telegram")
+
+
+# ── SSE parsing from raw bytes ──────────────────────────────────────────
+
+def _sse_bytes(*events: dict) -> bytes:
+    """Build raw SSE bytes from event dicts (without trailing done—
+    caller must append done if needed)."""
+    return b"".join(
+        f"data: {json.dumps(e)}\n\n".encode() for e in events
+    )
+
+
+def _client_bytes(data: bytes, status_code: int = 200) -> BackendClient:
+    """Create BackendClient with MockTransport returning raw bytes."""
+    transport = httpx.MockTransport(
+        lambda req: httpx.Response(status_code, content=data)
+    )
+    http = httpx.AsyncClient(transport=transport, base_url="http://test.local")
+    return BackendClient(http)
+
+
+@pytest.mark.anyio
+async def test_send_message_parses_raw_sse_bytes():
+    """send_message correctly parses raw SSE bytes (b'data:...\\n\\n...')."""
+    raw = _sse_bytes(
+        {"type": "token", "delta": "Hello"},
+        {"type": "token", "delta": " from bytes"},
+        {"type": "done"},
+    )
+    backend = _client_bytes(raw)
+
+    events = [
+        e async for e in backend.send_message(
+            UUID("00000000-0000-0000-0000-000000000010"),
+            "hi",
+            owner_external_id="u1",
+        )
+    ]
+
+    deltas = [e["delta"] for e in events if e["type"] == "token"]
+    assert deltas == ["Hello", " from bytes"]
+
+
+@pytest.mark.anyio
+async def test_send_message_raw_bytes_with_message_saved():
+    """Raw bytes SSE: token + message_saved + done → both events captured."""
+    raw = _sse_bytes(
+        {"type": "token", "delta": "A"},
+        {"type": "message_saved", "message_id": "msg-42"},
+        {"type": "done"},
+    )
+    backend = _client_bytes(raw)
+
+    events = [
+        e async for e in backend.send_message(
+            UUID("00000000-0000-0000-0000-000000000011"),
+            "test",
+            owner_external_id="owner",
+        )
+    ]
+
+    assert len(events) == 2
+    assert events[0] == {"type": "token", "delta": "A"}
+    assert events[1] == {"type": "message_saved", "message_id": "msg-42"}
+
+
+# ── media / multipart ───────────────────────────────────────────────────
+
+
+@pytest.mark.anyio
+async def test_send_message_with_media_sends_multipart():
+    """When media bytes are provided, the request includes a file part."""
+    transport, captured = _capturing_transport()
+    http = httpx.AsyncClient(transport=transport, base_url="http://test.local")
+    backend = BackendClient(http)
+
+    chat_id = UUID("c0000000-0000-0000-0000-000000000001")
+    media_data = b"\x89PNG\r\n\x1a\n"  # PNG signature prefix
+    mime = "image/png"
+
+    # We don't need to consume the generator fully — just checking the request
+    async for _ in backend.send_message(
+        chat_id, "caption", owner_external_id="u1",
+        media=media_data, mime=mime,
+    ):
+        pass  # MockTransport returns empty body → no lines match "data: "
+
+    req = captured[0]
+    assert req.method == "POST"
+    assert f"/chats/{chat_id}/messages" in req.url.path
+
+    # httpx with files= sends multipart/form-data
+    body = req.content
+    assert b"image/png" in body or b"filename" in body
+    assert b"caption" in body
+

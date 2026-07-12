@@ -41,6 +41,11 @@ class Settings(BaseSettings):
     chat_storage_dir: Path = Path("./var/chats")
     chat_context_window: int = 10
 
+    # Production ---------------------------------------------------------
+    # Service-to-service: backend ↔ bot (общий с bot /notify).
+    internal_token: SecretStr = SecretStr("change-me-internal")
+    # Базовый URL bot-сервиса (для broadcast и notify-вызовов из backend).
+    bot_url: str = "http://bot:9000"
 
 @lru_cache
 def get_settings() -> Settings:

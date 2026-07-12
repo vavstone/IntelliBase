@@ -7,12 +7,15 @@
 import asyncio
 import logging
 
+import uvicorn
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
+
 from bot.config import get_bot_settings
 from bot.handlers import register_routers
 from bot.services.backend_client import BackendClient
 from bot.services.http import build_http_client
+from bot.web import build_api
 
 logging.basicConfig(
     level=logging.INFO,
@@ -44,9 +47,25 @@ async def main() -> None:
     dp["backend"] = backend
     register_routers(dp)
 
+    api = build_api(bot, settings.internal_token.get_secret_value())
+    config = uvicorn.Config(
+        api,
+        host="0.0.0.0",
+        port=settings.bot_api_port,
+        log_level="info",
+    )
+    server = uvicorn.Server(config)
+
+    log.info(
+        "Bot starting (backend=%s, notify-port=%s, admin_chat_id=%s)",
+        settings.backend_url,
+        settings.bot_api_port
+    )
     try:
-        log.info("Starting polling...")
-        await dp.start_polling(bot, drop_pending_updates=True)
+        await asyncio.gather(
+            dp.start_polling(bot),
+            server.serve()
+        )
     finally:
         await backend.aclose()
         await bot.session.close()

@@ -44,11 +44,14 @@ class BackendClient:
         chat_id: UUID,
         content: str,
         owner_external_id: str,
+		media: bytes | None = None,
+        mime: str | None = None,
     ) -> AsyncIterator[str]:
         """POST /
         chats/{id}/messages, парсит SSE-стрим, возвращает токены ответа по мере поступления.
         """
         data = {"content": content}
+        files = {"media": ("file.bin", media, mime)} if media else None
         headers = (
             {"X-Owner-External-Id": owner_external_id}
             if owner_external_id
@@ -58,6 +61,7 @@ class BackendClient:
             "POST",
             f"/chats/{chat_id}/messages",
             data=data,
+            files=files,
             headers=headers,
             timeout=120.0,
         ) as r:

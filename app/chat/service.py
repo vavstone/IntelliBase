@@ -3,9 +3,11 @@ from collections.abc import AsyncIterator
 from typing import Literal
 from uuid import UUID
 
+from fastapi import UploadFile
+
 from app.chat.domain import Chat, ChatMessage
 from app.chat.repository import ChatRepository
-
+from app.chat.media import media_to_part
 
 logger = logging.getLogger("llm-service.chat")
 
@@ -78,10 +80,26 @@ class ChatService:
     ) -> list[ChatMessage]:
         return await self.repository.list_messages(chat_id, limit=limit)
 
+    async def clear_history(self, chat_id: UUID) -> None:
+        await self.repository.soft_delete_messages(chat_id)
     @staticmethod
     def _message_content_for_llm(m: ChatMessage) -> str | list[dict]:
-        return m.content
+        """Возвращает content в формате OpenAI Chat Completions.
 
+        Если у сообщения есть `media_refs.part`, content становится
+        `[text-part, media-part]` (text-part только если content не пустой).
+        Иначе — обычная строка.
+        """
+        media_part = None
+        if m.media_refs and isinstance(m.media_refs, dict):
+            media_part = m.media_refs.get("part")
+        if media_part is None:
+            return m.content
+        parts: list[dict] = []
+        if m.content:
+            parts.append({"type": "text", "text": m.content})
+        parts.append(media_part)
+        return parts
 
     def _build_context(
             self,
@@ -107,7 +125,8 @@ class ChatService:
     async def send_message(
         self,
         chat_id: UUID,
-        user_content: str
+        user_content: str,
+        media: UploadFile | None = None,
     ) -> AsyncIterator[dict]:
         """Полный цикл обработки сообщения пользователя.
 
@@ -119,6 +138,8 @@ class ChatService:
 
         Финальный `{"type":"done"}` добавляется в route handler, чтобы оба
         источника (упавший стрим vs нормальный) одинаково завершались.
+
+        
         """
 
         # 1. Загружаем чат
@@ -126,24 +147,42 @@ class ChatService:
         if chat is None:
             raise ValueError(f"chat {chat_id} not found")
 
-        # 2. Сохраняем user-сообщение
+
+        llm = self.get_llm(chat.provider)
+
+        # 2. media → part
+        media_refs: dict | None = None
+        if media is not None:
+            mime = media.content_type or ""
+            filename = media.filename
+            size = getattr(media, "size", None)
+            part = await media_to_part(media, llm)
+            media_refs = {
+                "mime": mime,
+                "size": size,
+                "filename": filename,
+                "part": part,
+            }
+
+
+        # 3. Сохраняем user-сообщение
         user_message = ChatMessage(
             chat_id=chat_id,
             role="user",
-            content=user_content
+            content=user_content,
+            media_refs=media_refs
         )
         await self.repository.append_message(chat_id, user_message)
 
-        # 3. История + контекст
+        # 4. История + контекст
         history = await self.repository.list_messages(
             chat_id, limit=self.context_window
         )
         messages = self._build_context(chat, history)
 
-        # 4. Стримим
+        # 5. Стримим
         buffer = ""
         usage = None
-        llm = self.get_llm(chat.provider)
 
         # stream_options — только для OpenAI-совместимых провайдеров
         extra = {}
@@ -170,8 +209,10 @@ class ChatService:
                     yield {"type": "token", "delta": content}
         except Exception as exc:
             logger.warning(
-                "stream failed chat_id=%s err=%s saved_chars=%d",
-                chat_id, exc, len(buffer),
+                "stream interrupted chat_id=%s err=%s saved_chars=%d",
+                chat_id,
+                exc,
+                len(buffer),
             )
             if buffer:
                 await self.repository.append_message(
@@ -187,7 +228,7 @@ class ChatService:
             yield {"type": "token", "delta": f"\n\n[Ошибка: {exc}]"}
             return
 
-        # 5. Успешное завершение — сохраняем накопленный ответ
+        # 6. Успешное завершение — сохраняем накопленный ответ
         if buffer:
             saved = await self.repository.append_message(
                 chat_id,
@@ -204,5 +245,3 @@ class ChatService:
             }
 
 
-    async def clear_history(self, chat_id: UUID) -> None:
-        await self.repository.soft_delete_messages(chat_id)

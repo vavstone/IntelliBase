@@ -54,7 +54,8 @@ DRAFT_MIN_INTERVAL_SEC = 0.7
 
 async def stream_to_chat(
     message: Message,
-    events: AsyncIterable[dict]
+    events: AsyncIterable[dict],
+    chat_id: uuid.UUID | None = None,
 ) -> str:
     """Стримит через sendMessageDraft с общим draft_id. Финальный send_message
     фиксирует ответ в чате и крепит feedback-кнопки, если backend отдал
@@ -70,10 +71,10 @@ async def stream_to_chat(
         )
         last_draft_at = monotonic()
     except AttributeError:
-        return await _stream_via_edit_text(message, events)
+        return await _stream_via_edit_text(message, events, chat_id)
     except TelegramRetryAfter as e:
         log.warning("draft flood on init, falling back to edit_text: retry_after=%s", e.retry_after)
-        return await _stream_via_edit_text(message, events)
+        return await _stream_via_edit_text(message, events, chat_id)
 
     async for event in events:
         etype = event.get("type")
@@ -130,7 +131,8 @@ async def _send_final(message: Message, text: str) -> None:
 
 async def _stream_via_edit_text(
     message: Message,
-    events: AsyncIterable[dict]
+    events: AsyncIterable[dict],
+    chat_id: uuid.UUID | None = None,
 ) -> str:
     """Fallback: edit_text-тротлинг 1 сек/кадр + finalize с feedback-кнопками."""
     sent = await message.answer("…")
