@@ -16,13 +16,13 @@ async def cmd_start(
     message: Message, backend: BackendClient, state: FSMContext
 ) -> None:
     await state.clear()
-    # Прогреваем chat_id в backend, чтобы /clear / on_text потом не падали.
-    await backend.get_or_create_chat(
+    # Всегда создаём новый чат — пользователь хочет начать заново.
+    await backend.create_chat(
         owner_external_id=str(message.chat.id),
         interface="telegram",
     )
     await message.answer(
-        "Привет! Я подключён к chat-сервису. Пиши сообщения — я отвечу.\n"
+        "Привет! Я начинаю новый диалог. Пиши сообщения — я отвечу.\n"
         "Команды: /help, /ask, /clear, /cancel"
     )
 

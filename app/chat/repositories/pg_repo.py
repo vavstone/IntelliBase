@@ -65,7 +65,7 @@ class PostgresChatRepository:
                 ChatRow.owner_external_id == owner_external_id,
                 ChatRow.interface == interface,
             )
-            .order_by(ChatRow.created_at.asc())
+            .order_by(ChatRow.created_at.desc())
             .limit(1)
         )
         row = (await self.session.execute(stmt)).scalar_one_or_none()

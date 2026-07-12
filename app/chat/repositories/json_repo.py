@@ -63,6 +63,7 @@ class JsonChatRepository:
     ) -> Chat:
 
         if self.base_dir.exists():
+            matches: list[Chat] = []
             for chat_dir in self.base_dir.iterdir():
                 if not chat_dir.is_dir():
                     continue
@@ -80,7 +81,11 @@ class JsonChatRepository:
                         chat.owner_external_id == owner_external_id
                         and chat.interface == interface
                 ):
-                    return chat
+                    matches.append(chat)
+            if matches:
+                # Возвращаем самый новый чат (последний созданный)
+                matches.sort(key=lambda c: c.created_at, reverse=True)
+                return matches[0]
         return await self.create_chat(
             owner_external_id = owner_external_id,
             interface = interface,

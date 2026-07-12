@@ -27,9 +27,8 @@ class CreateChatIn(BaseModel):
                 {
                     "owner_external_id": "user-123",
                     "interface": "telegram",
-                    "provider": "ollama",
-                    "model": "qwen2.5:3b",
                     "system_prompt": "Ты полезный ассистент.",
+                    "force_new": False,
                 }
             ]
         }
@@ -37,9 +36,10 @@ class CreateChatIn(BaseModel):
 
     owner_external_id: str
     interface: str
-    provider: Literal["openai", "ollama", "openrouter"] = "ollama"
-    model: str = "qwen2.5:3b"
+    provider: Literal["openai", "ollama", "openrouter"] | None = None
+    model: str | None = None
     system_prompt: str | None = None
+    force_new: bool = False
 
 
 class CreateChatOut(BaseModel):
@@ -54,24 +54,43 @@ class CreateChatOut(BaseModel):
     chat_id: UUID
 
 
+def _resolve_defaults(body: CreateChatIn) -> tuple[str, str]:
+    """Подставляет provider/model из настроек сервера, если клиент их не
+    передал.  Это гарантирует, что .env :: LLM__DEFAULT_MODEL /
+    LLM__DEFAULT_PROVIDER являются единственным источником истины."""
+    provider = body.provider or _settings.llm.default_provider
+    model = body.model or _settings.llm.default_model
+    return provider, model
+
+
 @router.post("", response_model=CreateChatOut, summary="Создать чат")
 async def create_chat(
     body: CreateChatIn, chat_service: ChatServiceDep
 ) -> CreateChatOut:
-    """Идемпотентно по (owner_external_id, interface): повторный POST с теми
-    же параметрами возвращает chat_id уже существующего чата. Это нужно ботам,
-    которые при каждом сообщении вызывают /chats и не помнят локально id.
+    """По умолчанию идемпотентно по (owner_external_id, interface): повторный
+    POST с теми же параметрами возвращает chat_id уже существующего чата.
+    С `force_new=True` всегда создаёт новый чат (полезно для /start в боте).
 
     system_prompt применяется только при первом создании; если чат уже
     существует — игнорируется молча (override через PATCH вне scope).
     """
-    chat = await chat_service.get_or_create_chat(
-        owner_external_id=body.owner_external_id,
-        interface=body.interface,
-        provider=body.provider,
-        model=body.model,
-        system_prompt=body.system_prompt,
-    )
+    provider, model = _resolve_defaults(body)
+    if body.force_new:
+        chat = await chat_service.create_chat(
+            owner_external_id=body.owner_external_id,
+            interface=body.interface,
+            provider=provider,
+            model=model,
+            system_prompt=body.system_prompt,
+        )
+    else:
+        chat = await chat_service.get_or_create_chat(
+            owner_external_id=body.owner_external_id,
+            interface=body.interface,
+            provider=provider,
+            model=model,
+            system_prompt=body.system_prompt,
+        )
     return CreateChatOut(chat_id=chat.id)
 
 

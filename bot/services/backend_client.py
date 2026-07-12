@@ -27,12 +27,31 @@ class BackendClient:
         owner_external_id: str,
         interface: str,
     ) -> UUID:
-        """POST /chats. Идемпотентен: повторный вызов с теми же параметрами возвращает существующий чат."""
+        """POST /chats. Идемпотентен: повторный вызов с теми же параметрами
+        возвращает существующий чат."""
         r = await self.http.post(
             "/chats",
             json={
                 "owner_external_id": owner_external_id,
                 "interface": interface,
+            },
+            headers={"X-Owner-External-Id": owner_external_id},
+        )
+        r.raise_for_status()
+        return UUID(r.json()["chat_id"])
+
+    async def create_chat(
+        self,
+        owner_external_id: str,
+        interface: str,
+    ) -> UUID:
+        """POST /chats с force_new=True. Всегда создаёт новый чат."""
+        r = await self.http.post(
+            "/chats",
+            json={
+                "owner_external_id": owner_external_id,
+                "interface": interface,
+                "force_new": True,
             },
             headers={"X-Owner-External-Id": owner_external_id},
         )
