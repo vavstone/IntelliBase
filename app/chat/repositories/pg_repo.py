@@ -77,7 +77,8 @@ class PostgresChatRepository:
             owner_external_id: str,
             interface: str,
             provider: Literal["openai", "ollama", "openrouter"],
-            model: str
+            model: str,
+            system_prompt: str | None = None
     ) -> Chat:
         stmt = (
             select(ChatRow)
@@ -95,7 +96,8 @@ class PostgresChatRepository:
             owner_external_id=owner_external_id,
             interface = interface,
             provider = provider,
-            model = model)
+            model = model,
+            system_prompt = system_prompt)
 
     async def append_message(
             self,

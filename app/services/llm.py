@@ -84,6 +84,33 @@ class LLMService:
             log_data["response_preview"] = redact_pii(response_content)[:120] if response_content else None
         logger.info("llm_request_completed", **log_data)
 
+    @staticmethod
+    def _translate_openai_error(exc: Exception) -> "LLMError":
+        """Маппинг OpenAI-исключений в доменные.
+        Вынесен отдельно, чтобы @retry на _call видел сырые OpenAI-исключения
+        ДО того, как они будут обёрнуты в LLMError."""
+        if isinstance(exc, RateLimitError):
+            logger.warning("OpenAI rate limit: %s", exc)
+            return LLMRateLimitError(str(exc))
+        if isinstance(exc, AuthenticationError):
+            logger.error("OpenAI authentication failed: %s", exc)
+            return LLMAuthError(str(exc))
+        if isinstance(exc, APITimeoutError):
+            logger.error("OpenAI timeout: %s", exc)
+            return LLMTimeoutError(str(exc))
+        if isinstance(exc, APIConnectionError):
+            logger.error("OpenAI connection error: %s", exc)
+            return LLMError(f"connection error: {exc}")
+        if isinstance(exc, BadRequestError):
+            msg = str(exc).lower()
+            if "content" in msg and ("filter" in msg or "policy" in msg):
+                return LLMContentFilterError(str(exc))
+            return LLMError(str(exc))
+        if isinstance(exc, PermissionDeniedError):
+            logger.error("permission denied error: %s", exc)
+            return LLMUnsupportedCountryError(str(exc))
+        return LLMError(str(exc))
+
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(min=1, max=10),
@@ -91,36 +118,16 @@ class LLMService:
         reraise=True
     )
     async def _call(self, req: ChatRequest) -> ChatResponse:
-        try:
-            llm = self.get_llm(req.provider)
-            raw = await llm.chat.completions.create(
-                model=req.model,
-                messages=[m.model_dump() for m in req.messages],
-                temperature=req.temperature,
-                max_tokens=req.max_tokens,
-            )
-            response = ChatResponse.from_openai(raw)
-            return response
-        except RateLimitError as e:
-            logger.warning("OpenAI rate limit: %s", e)
-            raise LLMRateLimitError(str(e)) from e
-        except AuthenticationError as e:
-            logger.error("OpenAI authentication failed: %s", e)
-            raise LLMAuthError(str(e)) from e
-        except APITimeoutError as e:
-            logger.error("OpenAI timeout: %s", e)
-            raise LLMTimeoutError(str(e)) from e
-        except APIConnectionError as e:
-            logger.error("OpenAI connection error: %s", e)
-            raise LLMError(f"connection error: {e}") from e
-        except BadRequestError as e:
-            msg = str(e).lower()
-            if "content" in msg and ("filter" in msg or "policy" in msg):
-                raise LLMContentFilterError(str(e)) from e
-            raise LLMError(str(e)) from e
-        except PermissionDeniedError as e:
-            logger.error("permission denied error: %s", e)
-            raise LLMUnsupportedCountryError(str(e)) from e
+        # НЕ ловим OpenAI-исключения здесь — их ловит @retry.
+        # Маппинг в LLMError делает _call_with_logging через _translate_openai_error.
+        llm = self.get_llm(req.provider)
+        raw = await llm.chat.completions.create(
+            model=req.model,
+            messages=[m.model_dump() for m in req.messages],
+            temperature=req.temperature,
+            max_tokens=req.max_tokens,
+        )
+        return ChatResponse.from_openai(raw)
 
     async def complete(self, req: ChatRequest) -> ChatResponse:
         # Кешируем только детерминированные ответы и при наличии кеша.
@@ -147,10 +154,15 @@ class LLMService:
         await self.cache.setex(key, self.ttl, resp.model_dump_json())
         return resp
 
-    async def _call_with_logging(self, req: ChatRequest)->ChatResponse:
+    async def _call_with_logging(self, req: ChatRequest) -> ChatResponse:
         raw_prompt = self._extract_prompt(req)
         start = perf_counter()
-        resp = await self._call(req)
+        try:
+            resp = await self._call(req)
+        except Exception as exc:
+            # После исчерпания retry-попыток tenacity пробрасывает исходное
+            # OpenAI-исключение. Транслируем в доменное.
+            raise self._translate_openai_error(exc) from exc
         latency_ms = (perf_counter() - start) * 1000
         resp.cached = False
         self._log_llm_completion(
@@ -182,21 +194,8 @@ class LLMService:
                 stream_options={"include_usage": True},
             )
             return stream, start_time, prompt
-        except RateLimitError as e:
-            raise LLMRateLimitError(str(e)) from e
-        except AuthenticationError as e:
-            raise LLMAuthError(str(e)) from e
-        except APITimeoutError as e:
-            raise LLMTimeoutError(str(e)) from e
-        except BadRequestError as e:
-            msg = str(e).lower()
-            if "content" in msg and ("filter" in msg or "policy" in msg):
-                raise LLMContentFilterError(str(e)) from e
-            raise LLMError(str(e)) from e
-        except PermissionDeniedError as e:
-            raise LLMUnsupportedCountryError(str(e)) from e
-        except APIConnectionError as e:
-            raise LLMError(f"connection error: {e}") from e
+        except Exception as exc:
+            raise self._translate_openai_error(exc) from exc
 
     async def iterate_stream(self, stream, provider, model, start_time, prompt):
         """Итерирует по стриму и выдаёт SSE-совместимые строки."""

@@ -17,6 +17,8 @@ class Usage(BaseModel):
 
     @classmethod
     def from_openai(cls, u) -> "Usage":
+        if u is None:
+            return cls()
         return cls(
             prompt_tokens=getattr(u, "prompt_tokens", 0),
             completion_tokens=getattr(u, "completion_tokens", 0),

@@ -29,17 +29,15 @@ log = logging.getLogger(__name__)
 
 
 class IsAdmin(Filter):
-    """Пропускает только Telegram-юзеров из BotSettings.bot_admin_ids.
+    """Пропускает только Telegram-юзеров из BotSettings.bot_admin_ids."""
 
-    Список парсится через pydantic-settings (валидатор `_parse_ids` в
-    BotSettings); `get_bot_settings()` закеширован через `@lru_cache`,
-    так что на сообщение — только set-lookup.
-    """
+    def __init__(self) -> None:
+        self._admin_ids: set[int] = set(get_bot_settings().bot_admin_ids)
 
     async def __call__(self, message: Message) -> bool:
         if message.from_user is None:
             return False
-        return message.from_user.id in set(get_bot_settings().bot_admin_ids)
+        return message.from_user.id in self._admin_ids
 
 
 router = Router(name="admin")

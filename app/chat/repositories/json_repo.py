@@ -100,7 +100,8 @@ class JsonChatRepository:
             owner_external_id = owner_external_id,
             interface = interface,
             provider = provider,
-            model = model)
+            model = model,
+            system_prompt = system_prompt)
 
     async def append_message(
             self,

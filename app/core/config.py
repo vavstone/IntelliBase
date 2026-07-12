@@ -1,21 +1,9 @@
 from functools import lru_cache
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Literal
 
-from pydantic import BeforeValidator, Field, SecretStr
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
-
-def _empty_to_none(v: str | int | None) -> int | None:
-    """Пустую строку из .env превращаем в None для int-полей."""
-    if v is None:
-        return None
-    if isinstance(v, str) and v.strip() == "":
-        return None
-    return int(v)
-
-
-IntOrNone = Annotated[int | None, BeforeValidator(_empty_to_none)]
 
 
 class LLMSettings(BaseSettings):
@@ -61,8 +49,6 @@ class Settings(BaseSettings):
     internal_token: SecretStr = SecretStr("change-me-internal")
     # Базовый URL bot-сервиса (для broadcast и notify-вызовов из backend).
     bot_url: str = "http://bot:9000"
-    # Telegram chat_id админ-группы для alert drain и handoff-уведомлений.
-    admin_chat_id: IntOrNone = None
     # Включить OpenAI Moderation API (layer 2 каскада). Если False —
     # только regex-блоклист.
     moderation_use_openai: bool = True

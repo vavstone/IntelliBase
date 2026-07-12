@@ -81,12 +81,18 @@ async def lifespan(app: FastAPI):
     )
 
     app.state.redis = None
+    redis_client = None
     try:
         redis_client = Redis.from_url(settings.redis_url, decode_responses=True)
         await redis_client.ping()
         app.state.redis = redis_client
     except Exception as e:
         logger.warning("Redis недоступен (%s) — продолжаем без кеша", e)
+        if redis_client is not None:
+            try:
+                await redis_client.close()
+            except Exception:
+                pass
 
     # Postgres: ленивый engine — не падаем, если БД недоступна на старте.
     app.state.async_engine = None
@@ -105,6 +111,11 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("Postgres engine не создан (%s) — postgres-репозиторий недоступен", e)
 
+    if settings.chat_repository == "json":
+        logger.warning(
+            "CHAT_REPOSITORY=json — admin-статистика, broadcast, алерты, "
+            "rate-limit и A/B-промпты требуют postgres и будут недоступны"
+        )
 
     # Генерация канарейки
     app.state.canary = secrets.token_hex(4)  # например, "a7f3b9e2"

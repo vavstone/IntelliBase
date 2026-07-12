@@ -19,6 +19,8 @@ POLL_INTERVAL = 10.0
 async def drain_alerts(
     bot, backend, admin_chat_id: int | None
 ) -> None:
+    if admin_chat_id is None:
+        log.warning("admin_chat_id not set — alert drain disabled")
     while True:
         if admin_chat_id is None:
             await asyncio.sleep(60)

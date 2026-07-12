@@ -39,7 +39,9 @@ class ChatService:
         context_window: int = 10,
         default_provider: str = "ollama",
         default_model: str = "qwen2.5:3b",
-		moderation: ModerationService | None = None,
+        default_temperature: float = 0.0,
+        default_max_tokens: int = 1024,
+        moderation: ModerationService | None = None,
         prompt_repo: SystemPromptRepository | None = None,
     ):
         self.repository = repository
@@ -49,6 +51,8 @@ class ChatService:
         self.context_window = context_window
         self.default_provider = default_provider
         self.default_model = default_model
+        self.default_temperature = default_temperature
+        self.default_max_tokens = default_max_tokens
         self.moderation = moderation
         self.prompt_repo = prompt_repo
 
@@ -89,7 +93,8 @@ class ChatService:
             owner_external_id=owner_external_id,
             interface=interface,
             provider=provider,
-            model=model
+            model=model,
+            system_prompt=system_prompt,
         )
 
 
@@ -273,6 +278,8 @@ class ChatService:
             stream = await llm.chat.completions.create(
                 model=chat.model or self.default_model,
                 messages=messages,
+                temperature=self.default_temperature,
+                max_tokens=self.default_max_tokens,
                 stream=True,
                 **extra,
             )
@@ -339,6 +346,7 @@ class ChatService:
                     chat_id=chat_id,
                     role="assistant",
                     content=buffer,
+                    tokens=usage.total_tokens if usage else None,
                     prompt_id=prompt_id,
                 ),
             )

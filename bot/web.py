@@ -5,9 +5,14 @@ Backend (или внутренний admin-flow) может попросить �
 сообщение конкретному пользователю Telegram.
 """
 
+import logging
+
 from aiogram import Bot
+from aiogram.exceptions import TelegramAPIError, TelegramForbiddenError
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel
+
+log = logging.getLogger(__name__)
 
 
 class NotifyRequest(BaseModel):
@@ -26,7 +31,17 @@ def build_api(bot: Bot, internal_token: str) -> FastAPI:
     ) -> dict:
         if x_internal_token != internal_token:
             raise HTTPException(status_code=401, detail="invalid token")
-        await bot.send_message(chat_id=req.chat_id, text=req.text)
+        try:
+            await bot.send_message(chat_id=req.chat_id, text=req.text)
+        except TelegramForbiddenError:
+            raise HTTPException(
+                status_code=400, detail="bot blocked by user or chat not found"
+            )
+        except TelegramAPIError as exc:
+            log.warning("/notify failed for chat_id=%s: %s", req.chat_id, exc)
+            raise HTTPException(
+                status_code=502, detail=f"telegram api error: {exc}"
+            )
         return {"ok": True}
 
     @api.get("/health")

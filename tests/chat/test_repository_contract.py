@@ -154,6 +154,7 @@ async def test_get_or_create_chat_idempotent(chat_repository: ChatRepository):
         interface=INTERFACE,
         provider=PROVIDER,
         model=MODEL,
+        system_prompt=SYSTEM_PROMPT,
     )
     # Второй вызов с теми же параметрами – должен вернуть тот же чат
     chat2 = await chat_repository.get_or_create_chat(
@@ -161,6 +162,7 @@ async def test_get_or_create_chat_idempotent(chat_repository: ChatRepository):
         interface=INTERFACE,
         provider=PROVIDER,
         model=MODEL,
+        system_prompt=SYSTEM_PROMPT,
     )
     assert chat1.id == chat2.id
     assert chat2.system_prompt == SYSTEM_PROMPT  # остался исходный

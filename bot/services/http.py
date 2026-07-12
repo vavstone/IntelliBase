@@ -26,7 +26,7 @@ def build_http_client(settings: BotSettings) -> httpx.AsyncClient:
         proxy=proxy,
         timeout=httpx.Timeout(
             connect=3.0,
-            read=60.0,
+            read=settings.request_timeout,
             write=10.0,
             pool=5.0,
         ),

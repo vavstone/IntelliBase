@@ -28,6 +28,7 @@ class ChatRepository(Protocol):
             interface: str,
             provider: Literal["openai", "ollama", "openrouter"],
             model: str,
+            system_prompt: str | None = None,
     ) -> Chat: ...
 
     async def append_message(

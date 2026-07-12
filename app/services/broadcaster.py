@@ -87,6 +87,8 @@ async def broadcast_worker(
     except Exception as exc:
         log.warning("broadcast resume failed: %s", exc)
 
+    http = httpx.AsyncClient(timeout=5.0)
+
     while True:
         try:
             async with session_factory() as s:
@@ -138,22 +140,21 @@ async def broadcast_worker(
 
                 # Отправляем
                 sent = failed = 0
-                async with httpx.AsyncClient(timeout=5.0) as c:
-                    for owner_id in owner_ids:
-                        try:
-                            r = await c.post(
-                                f"{bot_url}/notify",
-                                json={"chat_id": owner_id, "text": text_val},
-                                headers={"X-Internal-Token": internal_token},
-                            )
-                            r.raise_for_status()
-                            sent += 1
-                        except httpx.HTTPError as e:
-                            failed += 1
-                            log.warning(
-                                "broadcast[%s]: failed for %s: %s", bid, owner_id, e
-                            )
-                        await asyncio.sleep(THROTTLE)
+                for owner_id in owner_ids:
+                    try:
+                        r = await http.post(
+                            f"{bot_url}/notify",
+                            json={"chat_id": owner_id, "text": text_val},
+                            headers={"X-Internal-Token": internal_token},
+                        )
+                        r.raise_for_status()
+                        sent += 1
+                    except httpx.HTTPError as e:
+                        failed += 1
+                        log.warning(
+                            "broadcast[%s]: failed for %s: %s", bid, owner_id, e
+                        )
+                    await asyncio.sleep(THROTTLE)
 
                 # Финализируем
                 final_status = "done" if failed == 0 else "partial_fail"
