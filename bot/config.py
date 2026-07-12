@@ -23,9 +23,14 @@ class BotSettings(BaseSettings):
     # NoDecode — отключаем штатный JSON-парсинг list[int] для env-переменной,
     # чтобы значение "123,456" попало в наш валидатор как строка.
     bot_admin_ids: Annotated[list[int], NoDecode] = []
+    request_timeout: float = 30.0
     # /notify-канал backend → bot. Токен — общий секрет.
     internal_token: SecretStr = SecretStr("change-me")
     bot_api_port: int = 9000
+    # X-Admin-Token для вызовов /chats/admin/* из бота.
+    admin_token: SecretStr = SecretStr("change-me-admin")
+    # Telegram chat_id админ-группы для алертов. None — drain отключён.
+    admin_chat_id: int | None = None
     proxy_url: str | None = None
 
     @field_validator("bot_admin_ids", mode="before")
@@ -34,6 +39,17 @@ class BotSettings(BaseSettings):
         if isinstance(v, str):
             return [int(x) for x in v.split(",") if x.strip()]
         return v
+
+    @field_validator("admin_chat_id", mode="before")
+    @classmethod
+    def _empty_admin_chat_to_none(cls, v):
+        """Пустую строку из .env превращаем в None."""
+        if v is None:
+            return None
+        if isinstance(v, str) and v.strip() == "":
+            return None
+        return int(v)
+
 
 @lru_cache
 def get_bot_settings() -> BotSettings:

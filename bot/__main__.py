@@ -9,10 +9,13 @@ import logging
 
 import uvicorn
 from aiogram import Bot, Dispatcher
+from aiogram.client.default import DefaultBotProperties
+from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 
 from bot.config import get_bot_settings
 from bot.handlers import register_routers
+from bot.services.alert_drain import drain_alerts
 from bot.services.backend_client import BackendClient
 from bot.services.http import build_http_client
 from bot.web import build_api
@@ -37,14 +40,24 @@ async def main() -> None:
         from aiogram.client.session.aiohttp import AiohttpSession
         bot_session = AiohttpSession(proxy=settings.proxy_url)
         log.info("Using proxy for Telegram API: %s", settings.proxy_url)
-        bot = Bot(token=token, session=bot_session)
+        bot = Bot(token=token, 
+		session=bot_session,
+		default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+		)
     else:
-        bot = Bot(token=token)
+        bot = Bot(
+        token=token,
+        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+    )
 
     dp = Dispatcher(storage=MemoryStorage())
+
     http = build_http_client(settings)
-    backend = BackendClient(http)
+    backend = BackendClient(
+        http, admin_token=settings.admin_token.get_secret_value()
+    )
     dp["backend"] = backend
+
     register_routers(dp)
 
     api = build_api(bot, settings.internal_token.get_secret_value())
@@ -59,12 +72,14 @@ async def main() -> None:
     log.info(
         "Bot starting (backend=%s, notify-port=%s, admin_chat_id=%s)",
         settings.backend_url,
-        settings.bot_api_port
+        settings.bot_api_port,
+        settings.admin_chat_id,
     )
     try:
         await asyncio.gather(
             dp.start_polling(bot),
-            server.serve()
+            server.serve(),
+            drain_alerts(bot, backend, settings.admin_chat_id),
         )
     finally:
         await backend.aclose()

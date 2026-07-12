@@ -1,12 +1,33 @@
-from datetime import datetime
+"""Postgres-реализации репозиториев чата поверх async SQLAlchemy 2.x.
+
+`PostgresChatRepository` принимает `AsyncSession` — он живёт в рамках
+одного HTTP-запроса (yield-dependency в `deps.py`) и пишет вместе с
+основной транзакцией.
+
+`PostgresSystemPromptRepository` принимает `session_factory` и открывает
+короткоживущую сессию под единичный SELECT внутри `_pick_prompt`. Это
+позволяет не держать дополнительное соединение на тех путях, где
+A/B-сплит не используется (например, фон-задачи без LLM-вызова).
+"""
+
+
+
+from datetime import UTC, datetime
 from typing import Literal
 
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update
+
+
 from uuid import UUID
 
-from app.chat.domain import ChatMessage, Chat
-from app.chat.repositories.pg_models import ChatMessageRow, ChatRow
+from sqlalchemy import select, update
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from app.chat.domain import Chat, ChatMessage, SystemPrompt
+from app.chat.repositories.pg_models import (
+    ChatMessageRow,
+    ChatRow,
+    SystemPromptRow,
+)
 
 
 class PostgresChatRepository:
@@ -19,7 +40,7 @@ class PostgresChatRepository:
             interface: str,
             provider: Literal["openai", "ollama", "openrouter"],
             model: str,
-            system_prompt: str | None
+            system_prompt: str | None = None,
     ) -> Chat:
         chat = Chat(
             owner_external_id=owner_external_id,
@@ -56,8 +77,7 @@ class PostgresChatRepository:
             owner_external_id: str,
             interface: str,
             provider: Literal["openai", "ollama", "openrouter"],
-            model: str,
-            system_prompt: str | None
+            model: str
     ) -> Chat:
         stmt = (
             select(ChatRow)
@@ -75,8 +95,7 @@ class PostgresChatRepository:
             owner_external_id=owner_external_id,
             interface = interface,
             provider = provider,
-            model = model,
-            system_prompt = system_prompt)
+            model = model)
 
     async def append_message(
             self,
@@ -88,7 +107,10 @@ class PostgresChatRepository:
             chat_id=chat_id,
             role=message.role,
             content=message.content,
-            tokens = message.tokens
+            media_refs=message.media_refs,
+            tokens=message.tokens,
+            prompt_id=message.prompt_id,
+            created_at=message.created_at,
         )
         self.session.add(row)
         await self.session.commit()
@@ -109,7 +131,6 @@ class PostgresChatRepository:
             .limit(limit)
         )
         rows = (await self.session.execute(stmt)).scalars().all()
-        # Переворачиваем, чтобы получить хронологический порядок (от старых к новым)
         return [
             ChatMessage.model_validate(row, from_attributes=True)
             for row in reversed(rows)
@@ -124,7 +145,30 @@ class PostgresChatRepository:
             .where(
                 ChatMessageRow.chat_id == chat_id,
                 ChatMessageRow.deleted_at.is_(None)
-            ).values(deleted_at=datetime.now())
+            ).values(deleted_at=datetime.now(UTC))
         )
         await self.session.execute(stmt)
         await self.session.commit()
+
+
+class PostgresSystemPromptRepository:
+    def __init__(self, session_factory: async_sessionmaker[AsyncSession] | None):
+        self.session_factory = session_factory
+
+    async def list_active(self) -> list[SystemPrompt]:
+        """Активные кандидаты A/B-сплита, новые сначала."""
+        if self.session_factory is None:
+            return []
+        stmt = (
+            select(SystemPromptRow)
+            .where(
+                SystemPromptRow.active.is_(True),
+                SystemPromptRow.traffic_pct > 0,
+            )
+            .order_by(SystemPromptRow.created_at.desc())
+        )
+        async with self.session_factory() as session:
+            rows = (await session.execute(stmt)).scalars().all()
+        return [
+            SystemPrompt.model_validate(r, from_attributes=True) for r in rows
+        ]

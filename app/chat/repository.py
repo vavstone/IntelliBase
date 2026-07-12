@@ -1,7 +1,11 @@
+"""Контракты репозиториев чата через typing.Protocol.
+
+Реализации не обязаны наследоваться явно: структурная типизация.
+"""
 from typing import Protocol
 from uuid import UUID
 from typing import Literal
-from app.chat.domain import Chat, ChatMessage
+from app.chat.domain import Chat, ChatMessage, SystemPrompt
 
 class ChatRepository(Protocol):
     async def create_chat(
@@ -10,7 +14,7 @@ class ChatRepository(Protocol):
             interface: str,
             provider: Literal["openai", "ollama", "openrouter"],
             model: str,
-            system_prompt: str | None
+            system_prompt: str | None = None,
     ) -> Chat: ...
 
     async def get_chat(
@@ -24,7 +28,6 @@ class ChatRepository(Protocol):
             interface: str,
             provider: Literal["openai", "ollama", "openrouter"],
             model: str,
-            system_prompt: str | None,
     ) -> Chat: ...
 
     async def append_message(
@@ -43,3 +46,8 @@ class ChatRepository(Protocol):
             self,
             chat_id: UUID
     ) -> None: ...
+	
+class SystemPromptRepository(Protocol):
+    async def list_active(self) -> list[SystemPrompt]:
+        """Активные кандидаты A/B-сплита (active=TRUE и traffic_pct>0)."""
+        ...

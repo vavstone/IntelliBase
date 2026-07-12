@@ -1,3 +1,13 @@
+"""JsonChatRepository — JSONL append-only хранилище.
+
+Структура на диске:
+    <base_dir>/<chat_id>/chat.json        — метаданные Chat
+    <base_dir>/<chat_id>/messages.jsonl   — одна ChatMessage на строку
+
+Soft delete — маркерная запись `{"type": "soft_delete", "at": "..."}` в jsonl.
+list_messages пропускает всё, что было ДО последнего такого маркера.
+"""
+
 import json
 import logging
 from typing import Literal
@@ -90,8 +100,7 @@ class JsonChatRepository:
             owner_external_id = owner_external_id,
             interface = interface,
             provider = provider,
-            model = model,
-            system_prompt = system_prompt)
+            model = model)
 
     async def append_message(
             self,

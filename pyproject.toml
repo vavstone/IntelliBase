@@ -22,13 +22,15 @@ dependencies = [
     "asyncpg==0.31.0",
     "alembic==1.18.4",
     "tiktoken==0.13.0",
+    "structlog>=24",
     "aiogram>=3.27.0",
     "telegramify_markdown==1.2.0",
     "aiohttp-socks>=0.11.0",
     "python-docx==1.2.0",
     "pypdf==6.14.2",
     "sqlalchemy==2.0.51",
-    "httpx==0.28.1"
+    "httpx==0.28.1",
+    "pyyaml>=6.0"
 ]
 
 [project.optional-dependencies]
@@ -40,8 +42,8 @@ dev = [
     "garak>=0.9.0",
 ]
 
-[tool.uv]
-dev-dependencies = [
+[dependency-groups]
+dev = [
     "pytest>=8.3.0",
     "pytest-mock>=3.14.0",
     "pytest-asyncio>=0.25.0",
@@ -51,6 +53,9 @@ dev-dependencies = [
 
 [project.urls]
 Source = "https://github.com/vavstone/IntelliBase"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
 
 [tool.setuptools]
 packages = ["app", "bot"]

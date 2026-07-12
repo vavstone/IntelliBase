@@ -6,11 +6,13 @@ from fastapi import Depends
 from app.chat.repositories.json_repo import JsonChatRepository
 from app.chat.repositories.pg_repo import (
     PostgresChatRepository,
+    PostgresSystemPromptRepository,
 )
 from app.chat.repository import ChatRepository
 from app.chat.service import ChatService
 from app.core.config import get_settings
 from app.deps.providers import SessionFactoryDep, LLMOllamaDep, LLMOpenaiDep, LLMOpenrouterDep
+from app.moderation.service import ModerationService
 
 
 async def get_repository(
@@ -44,9 +46,28 @@ def get_chat_service(
     llm_ollama: LLMOllamaDep,
     llm_openai: LLMOpenaiDep,
     llm_openrouter: LLMOpenrouterDep,
+	session_factory: SessionFactoryDep,
 ) -> ChatService:
-
     settings = get_settings()
+
+    # Moderation: используем тот же AsyncOpenAI-клиент (он стоит в app.state.llm),
+    # — `llm` сюда уже приходит через get_llm, который читает app.state.llm.
+    # session_factory нужен сервису, чтобы писать alert при блокировке;
+    # если PG нет — алерты молча не пишутся.
+    moderation = ModerationService(
+        llm_client=llm_openai,
+        use_openai_moderation=settings.moderation_use_openai,
+        session_factory=session_factory,
+    )
+
+    # Prompt repository: только если есть PG-сессия. Иначе choose_by_split
+    # вернёт None и в send_message сработает chat.system_prompt.
+    prompt_repo = (
+        PostgresSystemPromptRepository(session_factory)
+        if session_factory is not None
+        else None
+    )
+
     return ChatService(
         repository=repo,
         llm_ollama=llm_ollama,
@@ -55,6 +76,8 @@ def get_chat_service(
         context_window=settings.chat_context_window,
         default_provider=settings.llm.default_provider,
         default_model=settings.llm.default_model,
+		moderation=moderation,
+        prompt_repo=prompt_repo,
     )
 
 

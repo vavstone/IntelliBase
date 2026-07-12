@@ -4,6 +4,7 @@ import uuid
 import httpx
 import structlog
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,6 +13,8 @@ from openai import AsyncOpenAI
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
+from app.admin.routes import router as admin_router
+from app.chat.routes import router as chat_router
 from app.core.config import get_settings
 from app.core.exceptions import (
     LLMAuthError,
@@ -22,7 +25,7 @@ from app.core.exceptions import (
     LLMUnsupportedCountryError
 )
 from app.routers import chat, health, models
-from app.chat.routes import router as chat_router
+
 from app.observability.tracing import setup_tracing
 from app.observability.logger import setup_logging
 
@@ -94,6 +97,11 @@ async def lifespan(app: FastAPI):
         app.state.session_factory = async_sessionmaker(
             engine, expire_on_commit=False
         )
+        # Создаём отсутствующие таблицы, если их ещё нет
+        # (для dev-окружений без alembic; в production — только миграции)
+        from app.chat.repositories.pg_models import Base
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
     except Exception as e:
         logger.warning("Postgres engine не создан (%s) — postgres-репозиторий недоступен", e)
 
@@ -101,7 +109,31 @@ async def lifespan(app: FastAPI):
     # Генерация канарейки
     app.state.canary = secrets.token_hex(4)  # например, "a7f3b9e2"
 
+    # Фоновые таски
+    import asyncio as _asyncio
+    from app.services.broadcaster import broadcast_worker as _broadcast_worker
+    from app.services.alerter import threshold_monitor as _threshold_monitor
+
+    _broadcast_task = _asyncio.create_task(
+        _broadcast_worker(
+            session_factory=app.state.session_factory,
+            bot_url=settings.bot_url,
+            internal_token=settings.internal_token.get_secret_value(),
+        )
+    )
+    _monitor_task = _asyncio.create_task(
+        _threshold_monitor(session_factory=app.state.session_factory)
+    )
+
     yield
+
+    # Останавливаем фоновые таски
+    for _task in (_broadcast_task, _monitor_task):
+        _task.cancel()
+        try:
+            await _task
+        except _asyncio.CancelledError:
+            pass
 
     try:
         await app.state.llm_ollama.close()
@@ -150,6 +182,7 @@ async def observability_middleware(request: Request, call_next):
     request.state.request_id = request_id
     request.state.llm_cost = 0.0
     request.state.llm_tokens = 0
+    owner_external_id = request.headers.get("X-Owner-External-Id")
 
     # Привязываем контекстные переменные для structlog
     structlog.contextvars.bind_contextvars(
@@ -166,13 +199,44 @@ async def observability_middleware(request: Request, call_next):
     except Exception:
         logger.exception("unhandled exception")
         raise
-    finally:
-        # Очищаем контекст после запроса
-        structlog.contextvars.clear_contextvars()
 
     duration_ms = (time.perf_counter() - t0) * 1000
     response.headers["X-Request-ID"] = request_id
     response.headers["X-LLM-Cost-USD"] = f"{request.state.llm_cost:.6f}"
+
+    # Определяем detail_code для классификации ответа
+    detail_code: str | None = None
+    status = response.status_code
+    if status == 403:
+        detail_code = "moderation_blocked"
+    elif status == 429:
+        detail_code = "rate_limit"
+
+    # Пишем метрику в request_metrics (fire-and-forget — не блокируем ответ)
+    sf = getattr(request.app.state, "session_factory", None)
+    if sf is not None:
+        try:
+            from sqlalchemy import text
+            async with sf() as s:
+                await s.execute(
+                    text(
+                        """
+                        INSERT INTO request_metrics
+                            (path, status_code, duration_ms, detail_code, owner_external_id, created_at)
+                        VALUES (:p, :sc, :d, :dc, :o, NOW())
+                        """
+                    ),
+                    {
+                        "p": request.url.path,
+                        "sc": status,
+                        "d": duration_ms,
+                        "dc": detail_code,
+                        "o": owner_external_id,
+                    },
+                )
+                await s.commit()
+        except Exception:
+            pass  # метрика не должна ронять запрос
 
     # Логируем завершение запроса (все привязанные поля автоматически добавятся)
     logger.info(
@@ -180,6 +244,8 @@ async def observability_middleware(request: Request, call_next):
         status=response.status_code,
         duration_ms=round(duration_ms, 2),
     )
+    # Очищаем контекст ПОСЛЕ лога (фикс: раньше чистилось в finally ДО лога)
+    structlog.contextvars.clear_contextvars()
     return response
 
 
@@ -223,5 +289,6 @@ async def handle_validation(request: Request, exc: RequestValidationError):
 
 app.include_router(chat.router)
 app.include_router(chat_router)
+app.include_router(admin_router)
 app.include_router(models.router)
 app.include_router(health.router)

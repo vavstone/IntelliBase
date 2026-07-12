@@ -67,7 +67,7 @@ async def on_question_received(
         events = backend.send_message(
             chat_id, prompt, owner_external_id=str(message.chat.id)
         )
-        await stream_to_chat(message, events)
+        await stream_to_chat(message, events, chat_id=chat_id)
     except Exception as exc:
         await handle_backend_error(message, exc)
     finally:

@@ -35,6 +35,9 @@ async def cmd_help(message: Message) -> None:
         "/ask — задать вопрос с выбором темы\n"
         "/clear — очистить историю диалога\n"
         "/cancel — отменить текущий сценарий\n"
+        "/operator — передать диалог живому оператору\n"
+        "\n"
+        "Для админов: /stats, /broadcast &lt;текст&gt;"
     )
 
 

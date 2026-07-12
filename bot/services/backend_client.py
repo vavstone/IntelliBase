@@ -17,9 +17,10 @@ import httpx
 
 class BackendClient:
     def __init__(
-        self, http: httpx.AsyncClient
+        self, http: httpx.AsyncClient, admin_token: str = ""
     ) -> None:
         self.http = http
+        self._admin_token = admin_token
 
     # --- chat operations -------------------------------------------------
     async def get_or_create_chat(
@@ -110,6 +111,89 @@ class BackendClient:
         )
         r.raise_for_status()
 
+    # --- feedback --------------------------------------------------------
+    async def post_feedback(
+        self,
+        chat_id: UUID,
+        message_id: str,
+        owner_external_id: str,
+        value: str,
+    ) -> None:
+        r = await self.http.post(
+            f"/chats/{chat_id}/messages/{message_id}/feedback",
+            json={"owner_external_id": owner_external_id, "value": value},
+            headers={"X-Owner-External-Id": owner_external_id},
+        )
+        r.raise_for_status()
+
+    # --- admin -----------------------------------------------------------
+    def _admin_headers(self) -> dict[str, str]:
+        return {"X-Admin-Token": self._admin_token}
+
+    async def get_admin_stats(self, window_hours: int = 24) -> dict:
+        r = await self.http.get(
+            "/chats/admin/stats",
+            params={"window_hours": window_hours},
+            headers=self._admin_headers(),
+        )
+        r.raise_for_status()
+        return r.json()
+
+    async def broadcast(
+        self, text: str, interface_filter: str = "telegram"
+    ) -> dict:
+        """POST /chats/admin/broadcast. Backend сам подтянет owner_ids по
+        interface_filter и поставит broadcast в очередь на отправку.
+        """
+        r = await self.http.post(
+            "/chats/admin/broadcast",
+            json={"text": text, "interface_filter": interface_filter},
+            headers=self._admin_headers(),
+        )
+        r.raise_for_status()
+        return r.json()
+
+    async def list_admin_users(self, limit: int = 10) -> list[dict]:
+        """GET /chats/admin/users — список пользователей."""
+        r = await self.http.get(
+            "/chats/admin/users",
+            params={"limit": limit},
+            headers=self._admin_headers(),
+        )
+        r.raise_for_status()
+        return r.json()
+
+    async def set_handoff_status(
+        self,
+        owner_external_id: str,
+        status: str,
+        interface: str = "telegram",
+    ) -> dict:
+        r = await self.http.post(
+            "/chats/admin/handoff",
+            json={
+                "owner_external_id": owner_external_id,
+                "interface": interface,
+                "status": status,
+            },
+            headers=self._admin_headers(),
+        )
+        r.raise_for_status()
+        return r.json()
+
+    async def fetch_pending_alerts(self) -> list[dict]:
+        r = await self.http.get(
+            "/chats/admin/alerts", headers=self._admin_headers()
+        )
+        r.raise_for_status()
+        return r.json()
+
+    async def ack_alert(self, alert_id: int) -> None:
+        r = await self.http.post(
+            f"/chats/admin/alerts/{alert_id}/ack",
+            headers=self._admin_headers(),
+        )
+        r.raise_for_status()
 
     # --- lifecycle -------------------------------------------------------
     async def aclose(self) -> None:

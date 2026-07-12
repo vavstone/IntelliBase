@@ -2,7 +2,6 @@ import hashlib
 
 from app.core.pii_patterns import PII_PATTERNS
 
-
 def redact_pii(text: str) -> str:
     for name, pattern in PII_PATTERNS.items():
         text = pattern.sub(f"[{name}]", text)

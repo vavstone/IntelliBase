@@ -21,12 +21,14 @@ import logging
 import uuid
 from collections.abc import AsyncIterable
 from time import monotonic
+from uuid import UUID
 
 import telegramify_markdown
 from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramBadRequest, TelegramRetryAfter
 from aiogram.types import Message
 
+from bot.keyboards.inline import feedback_kb
 
 log = logging.getLogger(__name__)
 
@@ -55,13 +57,15 @@ DRAFT_MIN_INTERVAL_SEC = 0.7
 async def stream_to_chat(
     message: Message,
     events: AsyncIterable[dict],
-    chat_id: uuid.UUID | None = None,
+    chat_id: UUID | None = None,
 ) -> str:
     """Стримит через sendMessageDraft с общим draft_id. Финальный send_message
     фиксирует ответ в чате и крепит feedback-кнопки, если backend отдал
     message_id."""
     draft_id = uuid.uuid4().int & 0xFFFFFFFF or 1  # ensure non-zero
     buffer = ""
+    assistant_message_id: str | None = None
+    last_draft_at = 0.0
 
     # Первый кадр — пустой draft-плейсхолдер. Если метод недоступен (старая
     # aiogram) — graceful fallback на edit_text.
@@ -100,15 +104,20 @@ async def stream_to_chat(
                 # draft expired / message_not_modified — игнорируем,
                 # доберём финальным send_message.
                 pass
+        elif etype == "message_saved":
+            assistant_message_id = event.get("message_id")
 
     if buffer:
-        await _send_final(message, buffer)
+        reply_markup = (
+            feedback_kb(assistant_message_id) if assistant_message_id else None
+        )
+        await _send_final(message, buffer, reply_markup)
     else:
         await message.answer("Не получилось получить ответ от модели. Попробуйте ещё раз.")
     return buffer
 
 
-async def _send_final(message: Message, text: str) -> None:
+async def _send_final(message: Message, text: str, reply_markup) -> None:
     """Шлёт финальный send_message с Telegram MarkdownV2.
 
     Если MarkdownV2-парсер Telegram'а спотыкается на конкретном тексте
@@ -119,6 +128,7 @@ async def _send_final(message: Message, text: str) -> None:
         await message.bot.send_message(
             chat_id=message.chat.id,
             text=md,
+            reply_markup=reply_markup,
             parse_mode=ParseMode.MARKDOWN_V2,
         )
     except TelegramBadRequest as e:
@@ -126,17 +136,19 @@ async def _send_final(message: Message, text: str) -> None:
         await message.bot.send_message(
             chat_id=message.chat.id,
             text=text,
+            reply_markup=reply_markup,
         )
 
 
 async def _stream_via_edit_text(
     message: Message,
     events: AsyncIterable[dict],
-    chat_id: uuid.UUID | None = None,
+    chat_id: UUID | None = None,
 ) -> str:
     """Fallback: edit_text-тротлинг 1 сек/кадр + finalize с feedback-кнопками."""
     sent = await message.answer("…")
     buffer = ""
+    assistant_message_id: str | None = None
     last_edit = monotonic()
 
     async for event in events:
@@ -151,14 +163,23 @@ async def _stream_via_edit_text(
                     last_edit = monotonic() + e.retry_after
                 except TelegramBadRequest:
                     last_edit = monotonic()
+        elif etype == "message_saved":
+            assistant_message_id = event.get("message_id")
 
     if buffer:
+        reply_markup = (
+            feedback_kb(assistant_message_id) if assistant_message_id else None
+        )
         md = _to_tg_markdown(buffer)
         try:
-            await sent.edit_text(md, parse_mode=ParseMode.MARKDOWN_V2)
+            await sent.edit_text(
+                md,
+                reply_markup=reply_markup,
+                parse_mode=ParseMode.MARKDOWN_V2,
+            )
         except TelegramBadRequest:
             try:
-                await sent.edit_text(buffer)
+                await sent.edit_text(buffer, reply_markup=reply_markup)
             except (TelegramBadRequest, TelegramRetryAfter):
                 pass
         except TelegramRetryAfter:
