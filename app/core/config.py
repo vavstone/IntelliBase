@@ -20,6 +20,18 @@ class LLMSettings(BaseSettings):
     max_retries: int = 3
 
 
+class EmbeddingSettings(BaseSettings):
+    """Настройки embedding-сервиса. Переключаются через EMBEDDING_PROVIDER и EMBEDDING_MODEL."""
+
+    model_config = SettingsConfigDict(env_prefix="EMBEDDING_")
+
+    provider: Literal["openai", "sentence_transformers"] = "sentence_transformers"
+    model: str = "intfloat/multilingual-e5-large"
+    batch_size: int = 32  # Для ST на CPU — 16–32
+    cache_dir: str = "./var/embedding_cache"
+    max_retries: int = 5
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -35,6 +47,7 @@ class Settings(BaseSettings):
     cache_ttl_seconds: int = 3600
     proxy_url: str | None = None
     llm: LLMSettings = Field(default_factory=LLMSettings)
+    embedding: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
 
     database_url: str = "postgresql+asyncpg://chat:pswd@localhost:5433/intellibase"
     chat_repository: Literal["json", "postgres"] = "json"
