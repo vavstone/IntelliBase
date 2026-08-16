@@ -176,7 +176,7 @@ class TestMiniBenchmark:
     """
 
     @pytest.fixture
-    async def multilingual_service(self) -> EmbeddingsService:
+    def multilingual_service(self) -> EmbeddingsService:
         """Сервис с мультиязычной моделью. Требует загрузки ~420 MB."""
         import os
         if not os.environ.get("MULTILINGUAL_MODEL"):

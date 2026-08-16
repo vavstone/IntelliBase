@@ -47,3 +47,11 @@ def get_session_factory(request: Request) -> Any:
     return request.app.state.session_factory
 
 SessionFactoryDep = Annotated[Any, Depends(get_session_factory)]
+
+
+def get_vector_store(request: Request):
+    """Возвращает VectorStore из app.state (создан в lifespan)."""
+    return getattr(request.app.state, "vector_store", None)
+
+from app.services.vector_store import VectorStore as _VectorStore
+VectorStoreDep = Annotated[_VectorStore | None, Depends(get_vector_store)]

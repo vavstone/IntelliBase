@@ -68,6 +68,12 @@ class Settings(BaseSettings):
     # Rate limit: сколько сообщений на одного owner_external_id в минуту.
     rate_limit_messages_per_min: int = 15
 
+    # Qdrant ---------------------------------------------------------------
+    qdrant_url: str = "http://localhost:6333"
+    qdrant_api_key: SecretStr | None = None
+    qdrant_collection: str = "documents"
+    embedding_dim: int = 1024   # intfloat/multilingual-e5-large
+
 
 @lru_cache
 def get_settings() -> Settings:

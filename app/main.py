@@ -136,6 +136,29 @@ async def lifespan(app: FastAPI):
         _threshold_monitor(session_factory=app.state.session_factory)
     )
 
+    # Qdrant VectorStore
+    from app.services.vector_store import VectorStore
+    qdrant_api_key = (
+        settings.qdrant_api_key.get_secret_value()
+        if settings.qdrant_api_key is not None
+        else None
+    )
+    app.state.vector_store = VectorStore(
+        url=settings.qdrant_url,
+        api_key=qdrant_api_key,
+        collection=settings.qdrant_collection,
+        dim=settings.embedding_dim,
+    )
+    try:
+        await app.state.vector_store.ensure_collection()
+        logger.info(
+            "Qdrant collection '%s' ready (dim=%d)",
+            settings.qdrant_collection,
+            settings.embedding_dim,
+        )
+    except Exception as e:
+        logger.warning("Qdrant недоступен (%s) — продолжаем без векторного поиска", e)
+
     yield
 
     # Останавливаем фоновые таски
@@ -165,6 +188,11 @@ async def lifespan(app: FastAPI):
     if app.state.async_engine is not None:
         try:
             await app.state.async_engine.dispose()
+        except Exception:
+            pass
+    if hasattr(app.state, "vector_store") and app.state.vector_store is not None:
+        try:
+            await app.state.vector_store.close()
         except Exception:
             pass
 
