@@ -82,11 +82,21 @@ class Settings(BaseSettings):
     rag_collection_bare: str = "rag_block_03_bare"
     # LLM для генерации RAG-ответа (Ollama через OpenAI-совместимый эндпоинт).
     rag_llm_model: str = "gemma3:4b"
-    rag_top_k: int = 3
+    # Итоговая конфигурация из ДЗ 5.4 (docs/chunking_experiment.md): fixed_size
+    # 512/64, top-K=10. Тюнинг показал: чанк 512 > 256, overlap 64 > 32,
+    # top-K=20 не даёт прироста к 10 (Hit@5=1.0, MRR@10=0.951, Recall@10=0.979).
+    rag_top_k: int = 10
     rag_chunk_size: int = 512
     rag_chunk_overlap: int = 64
     # Если top-1 score ниже порога — ответа в корпусе нет, отдаём честный fallback.
     rag_score_threshold: float = 0.5
+
+    # Re-ranker (ДЗ 5.4): cross-encoder поверх bi-encoder поиска. Включается
+    # опционально (RAG_RERANK_ENABLED) — при включении движок пересортировывает
+    # top-K кандидатов (rag_top_k) и оставляет top-N в промпт (rag_rerank_top_n).
+    rag_rerank_enabled: bool = False
+    rag_rerank_model: str = "BAAI/bge-reranker-v2-m3"
+    rag_rerank_top_n: int = 3
 
 
 @lru_cache

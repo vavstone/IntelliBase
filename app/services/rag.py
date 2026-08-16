@@ -19,6 +19,7 @@ from llama_index.core import (
 )
 from llama_index.core.base.llms.types import LLMMetadata, MessageRole
 from llama_index.core.node_parser import SentenceSplitter
+from llama_index.core.postprocessor import SentenceTransformerRerank
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.llms.openai import OpenAI as _OpenAI
 from llama_index.vector_stores.qdrant import QdrantVectorStore
@@ -170,10 +171,20 @@ class RAGService:
                 self._settings.rag_collection,
             )
 
-        self._engine = self._index.as_query_engine(
-            similarity_top_k=self._settings.rag_top_k,
-            text_qa_template=QA_PROMPT,
-        )
+        kwargs: dict = {
+            "similarity_top_k": self._settings.rag_top_k,
+            "text_qa_template": QA_PROMPT,
+        }
+        # Re-ranker (ДЗ 5.4): опциональный cross-encoder поверх bi-encoder поиска.
+        # При включении пересортировывает top-K кандидатов и оставляет top-N в промпт.
+        if self._settings.rag_rerank_enabled:
+            kwargs["node_postprocessors"] = [
+                SentenceTransformerRerank(
+                    model=self._settings.rag_rerank_model,
+                    top_n=self._settings.rag_rerank_top_n,
+                )
+            ]
+        self._engine = self._index.as_query_engine(**kwargs)
 
     async def answer(self, question: str) -> dict:
         if self._engine is None:

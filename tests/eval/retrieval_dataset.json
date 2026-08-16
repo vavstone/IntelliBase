@@ -1,0 +1,98 @@
+[
+  {
+    "question": "Какой столбец надо добавить в форму 38-запрет?",
+    "relevant_doc_ids": ["1893_38_zapret.pdf"]
+  },
+  {
+    "question": "Как переименовать столбцы таблиц формы 38-запрет про специальные экономические меры?",
+    "relevant_doc_ids": ["1893_38_zapret.pdf"]
+  },
+  {
+    "question": "Какой новый вид объектов интеллектуальной собственности добавят в таможенный реестр?",
+    "relevant_doc_ids": ["geograficheskie_ukazaniya.pdf"]
+  },
+  {
+    "question": "Какой код у географического указания в регистрационном номере ОИС?",
+    "relevant_doc_ids": ["geograficheskie_ukazaniya.pdf"]
+  },
+  {
+    "question": "Какие критерии в Тарифы-Реестр ОИС для гибких запросов?",
+    "relevant_doc_ids": ["kps_tarify_ree_ois.docx"]
+  },
+  {
+    "question": "Какой показатель мониторинга отвечает за сроки приостановления выпуска?",
+    "relevant_doc_ids": ["malahit_metodika_13.docx"]
+  },
+  {
+    "question": "На основе какой формы отчётности Малахит выявляет контрафакт?",
+    "relevant_doc_ids": ["malahit_metodika_14.docx"]
+  },
+  {
+    "question": "Как считается показатель вовлечённости ТФК в выявление контрафакта? Что такое А и В?",
+    "relevant_doc_ids": ["malahit_pokazateli_37is.docx"]
+  },
+  {
+    "question": "Какие данные о руководителе передают из Личного кабинета в Тарифы-Компоненты по доверенности МЧД?",
+    "relevant_doc_ids": ["mchd_pril_ft.docx"]
+  },
+  {
+    "question": "Что автоматически сопоставляется в витрине параллельного импорта из ТРОИС, Роспатента и ВОИС?",
+    "relevant_doc_ids": ["parallelny_import.docx"]
+  },
+  {
+    "question": "В рамках какой госуслуги Тарифы-1 взаимодействует с БД Экспертиза при назначении экспертиз?",
+    "relevant_doc_ids": ["predresheniya_ekspertiza.pdf"]
+  },
+  {
+    "question": "Что сопоставляется в РМ СТО с ТРОИС и Роспатентом при приостановлении выпуска?",
+    "relevant_doc_ids": ["prikaz_665_rois.pdf"]
+  },
+  {
+    "question": "С какими системами связана верификация сертификатов происхождения?",
+    "relevant_doc_ids": ["sertif_verifikaciya.pdf"]
+  },
+  {
+    "question": "Какой формат файла рекомендован для скана сертификата?",
+    "relevant_doc_ids": ["sertif_voprosy_npk.docx"]
+  },
+  {
+    "question": "Что показывают в окне «Экспертизы» в Тарифы-Реестр ОИС?",
+    "relevant_doc_ids": ["trois_ekspertiza.pdf"]
+  },
+  {
+    "question": "Какие данные о доверенных лицах правообладателя выгружают на сайт ФТС? Какое поле?",
+    "relevant_doc_ids": ["trois_vygruzka_5027.pdf"]
+  },
+  {
+    "question": "Какие цели обращения есть в сервисе «Правообладатели» при подаче заявления?",
+    "relevant_doc_ids": ["zayavlenie_trois_prodlenie.docx"]
+  },
+  {
+    "question": "Какой формат номера у запроса на верификацию сертификата?",
+    "relevant_doc_ids": ["sertif_verifikaciya.pdf", "sertif_soglasovanie.docx"]
+  },
+  {
+    "question": "Чем отличаются показатели мониторинга 13 и 14 в Малахит?",
+    "relevant_doc_ids": ["malahit_metodika_13.docx", "malahit_metodika_14.docx"]
+  },
+  {
+    "question": "Нужна ли верификации сертификатов связь с Паспортом таможенного органа и ЭАД?",
+    "relevant_doc_ids": ["sertif_verifikaciya.pdf", "sertif_soglasovanie.docx"]
+  },
+  {
+    "question": "Чем отличается выгрузка ТРОИС на сайт ФТС от показа экспертиз в Тарифы-Реестр ОИС?",
+    "relevant_doc_ids": ["trois_vygruzka_5027.pdf", "trois_ekspertiza.pdf"]
+  },
+  {
+    "question": "Чем отличается подача заявления на включение ОИС в реестр от продления срока?",
+    "relevant_doc_ids": ["kps_tarify_ree_ois.docx", "zayavlenie_trois_prodlenie.docx"]
+  },
+  {
+    "question": "Опиши полный цикл работы с ОИС: от заявления правообладателя до выгрузки реестра на сайт ФТС.",
+    "relevant_doc_ids": ["zayavlenie_trois_prodlenie.docx", "kps_tarify_ree_ois.docx", "trois_vygruzka_5027.pdf"]
+  },
+  {
+    "question": "Как проходит контроль происхождения: от отправки сертификата на верификацию до результатов?",
+    "relevant_doc_ids": ["sertif_verifikaciya.pdf", "sertif_soglasovanie.docx"]
+  }
+]
