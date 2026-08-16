@@ -24,7 +24,7 @@ from app.core.exceptions import (
     LLMTimeoutError,
     LLMUnsupportedCountryError
 )
-from app.routers import chat, health, models
+from app.routers import chat, health, models, rag
 
 from app.observability.tracing import setup_tracing
 from app.observability.logger import setup_logging
@@ -159,6 +159,19 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("Qdrant недоступен (%s) — продолжаем без векторного поиска", e)
 
+    # RAG (LlamaIndex) — опционален: строим индекс один раз на старте.
+    # Импорт ленивый: llama_index тяжёлый, не нужен тестам без lifespan.
+    app.state.rag_service = None
+    try:
+        from app.services.rag import RAGService
+
+        rag_service = RAGService(settings)
+        await _asyncio.to_thread(rag_service.build)
+        app.state.rag_service = rag_service
+        logger.info("RAG-сервис готов (коллекция %s)", settings.rag_collection)
+    except Exception as e:
+        logger.warning("RAG-сервис не инициализирован (%s) — /rag/query вернёт 503", e)
+
     yield
 
     # Останавливаем фоновые таски
@@ -193,6 +206,11 @@ async def lifespan(app: FastAPI):
     if hasattr(app.state, "vector_store") and app.state.vector_store is not None:
         try:
             await app.state.vector_store.close()
+        except Exception:
+            pass
+    if getattr(app.state, "rag_service", None) is not None:
+        try:
+            await app.state.rag_service.close()
         except Exception:
             pass
 
@@ -331,3 +349,4 @@ app.include_router(chat_router)
 app.include_router(admin_router)
 app.include_router(models.router)
 app.include_router(health.router)
+app.include_router(rag.router)

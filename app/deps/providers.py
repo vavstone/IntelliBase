@@ -55,3 +55,12 @@ def get_vector_store(request: Request):
 
 from app.services.vector_store import VectorStore as _VectorStore
 VectorStoreDep = Annotated[_VectorStore | None, Depends(get_vector_store)]
+
+
+def get_rag_service(request: Request):
+    """RAG-сервис на LlamaIndex, собранный один раз в lifespan. None — если
+    Qdrant/индекс был недоступен на старте: роут отдаёт 503."""
+    return getattr(request.app.state, "rag_service", None)
+
+
+RAGServiceDep = Annotated[Any, Depends(get_rag_service)]

@@ -74,6 +74,20 @@ class Settings(BaseSettings):
     qdrant_collection: str = "documents"
     embedding_dim: int = 1024   # intfloat/multilingual-e5-large
 
+    # RAG (LlamaIndex) ------------------------------------------------------
+    # Корпус для индексации и отдельные коллекции под LlamaIndex и bare-metal:
+    # один корпус и одна embed-модель (embedding.model), но раскладка payload разная.
+    rag_data_dir: Path = Path("data/rag-block-03")
+    rag_collection: str = "rag_block_03"
+    rag_collection_bare: str = "rag_block_03_bare"
+    # LLM для генерации RAG-ответа (Ollama через OpenAI-совместимый эндпоинт).
+    rag_llm_model: str = "gemma3:4b"
+    rag_top_k: int = 3
+    rag_chunk_size: int = 512
+    rag_chunk_overlap: int = 64
+    # Если top-1 score ниже порога — ответа в корпусе нет, отдаём честный fallback.
+    rag_score_threshold: float = 0.5
+
 
 @lru_cache
 def get_settings() -> Settings:
