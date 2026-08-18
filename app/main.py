@@ -24,7 +24,7 @@ from app.core.exceptions import (
     LLMTimeoutError,
     LLMUnsupportedCountryError
 )
-from app.routers import chat, health, models, rag
+from app.routers import chat, documents, health, models, rag
 
 from app.observability.tracing import setup_tracing
 from app.observability.logger import setup_logging
@@ -103,11 +103,10 @@ async def lifespan(app: FastAPI):
         app.state.session_factory = async_sessionmaker(
             engine, expire_on_commit=False
         )
-        # Создаём отсутствующие таблицы, если их ещё нет
-        # (для dev-окружений без alembic; в production — только миграции)
-        from app.chat.repositories.pg_models import Base
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
+        # Схему БД управляем только через Alembic-миграции (entrypoint перед
+        # стартом uvicorn: `alembic upgrade head`). Здесь таблиц не создаём и
+        # не меняем — `create_all` не добавляет/не удаляет колонки и ведёт к
+        # дрейфу схемы (колонка `sources` так и не появилась бы).
     except Exception as e:
         logger.warning("Postgres engine не создан (%s) — postgres-репозиторий недоступен", e)
 
@@ -159,18 +158,30 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("Qdrant недоступен (%s) — продолжаем без векторного поиска", e)
 
-    # RAG (LlamaIndex) — опционален: строим индекс один раз на старте.
+    # Индексация + RAG (LlamaIndex) — опциональны: собираем один раз на старте.
     # Импорт ленивый: llama_index тяжёлый, не нужен тестам без lifespan.
+    app.state.ingestion_service = None
     app.state.rag_service = None
     try:
+        from app.services.ingestion import IngestionService
         from app.services.rag import RAGService
+
+        ingestion = IngestionService(settings)
+        app.state.ingestion_service = ingestion
+        # Первичная индексация корпуса только если коллекция пуста — на рестартах
+        # UPSERTS по сохранённому docstore всё равно пропустит неизменённое.
+        if ingestion.is_collection_empty():
+            await _asyncio.to_thread(ingestion.ingest_all)
 
         rag_service = RAGService(settings)
         await _asyncio.to_thread(rag_service.build)
         app.state.rag_service = rag_service
         logger.info("RAG-сервис готов (коллекция %s)", settings.rag_collection)
     except Exception as e:
-        logger.warning("RAG-сервис не инициализирован (%s) — /rag/query вернёт 503", e)
+        logger.warning(
+            "RAG/индексация не инициализированы (%s) — /rag/query и /documents вернут 503",
+            e,
+        )
 
     yield
 
@@ -211,6 +222,11 @@ async def lifespan(app: FastAPI):
     if getattr(app.state, "rag_service", None) is not None:
         try:
             await app.state.rag_service.close()
+        except Exception:
+            pass
+    if getattr(app.state, "ingestion_service", None) is not None:
+        try:
+            app.state.ingestion_service.close()
         except Exception:
             pass
 
@@ -350,3 +366,4 @@ app.include_router(admin_router)
 app.include_router(models.router)
 app.include_router(health.router)
 app.include_router(rag.router)
+app.include_router(documents.router)

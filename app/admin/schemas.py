@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class StatsOut(BaseModel):
@@ -10,6 +10,9 @@ class StatsOut(BaseModel):
 
     avg_latency_ms и moderation_block_rate считаются по таблице request_metrics,
     которая заполняется observability-middleware на каждом запросе.
+
+    RAG-дельта (Б5.5): refusal_rate — доля отказов «не нашёл», negative_feedback_rate
+    — доля отрицательных оценок, knowledge_gaps — топ вопросов без уверенного ответа.
     """
 
     total_messages: int
@@ -17,6 +20,9 @@ class StatsOut(BaseModel):
     avg_latency_ms: float = 0.0
     moderation_block_rate: float = 0.0
     feedback_ratio: float = 0.0
+    refusal_rate: float = 0.0
+    negative_feedback_rate: float = 0.0
+    knowledge_gaps: list[str] = Field(default_factory=list)
 
 
 class UserOut(BaseModel):

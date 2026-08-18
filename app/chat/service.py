@@ -10,6 +10,11 @@
 text/event-stream). Поэтому в route handler вызывается отдельно
 `await service.check_input(...)`, и только после прохода —
 `StreamingResponse(service.send_message(...))`.
+
+Диалоговый RAG (Б5.5): если в сервис передан `rag_service` и включён
+`rag_enable_chat`, `send_message` идёт по RAG-пути — retrieval (с опциональным
+condense по истории) + генерация по пронумерованному контексту с цитатами [1][2]
+и финальным SSE-событием `sources`. Иначе — прежний чистый LLM-чат (M4).
 """
 
 import logging
@@ -28,6 +33,15 @@ from app.moderation.service import ModerationService
 
 logger = logging.getLogger("llm-service.chat")
 
+CONDENSE_TEMPLATE = (
+    "Перепиши последний вопрос в самодостаточный поисковый запрос, учитывая "
+    "историю диалога (замени местоимения и опущенные слова на явные сущности). "
+    "Верни ТОЛЬКО переписанный вопрос, без пояснений.\n\n"
+    "История:\n{history}\n\n"
+    "Последний вопрос: {question}\n"
+    "Переписанный вопрос:"
+)
+
 
 class ChatService:
     def __init__(
@@ -43,6 +57,10 @@ class ChatService:
         default_max_tokens: int = 1024,
         moderation: ModerationService | None = None,
         prompt_repo: SystemPromptRepository | None = None,
+        rag_service=None,
+        rag_enable_chat: bool = False,
+        rag_condense_enabled: bool = False,
+        rag_score_threshold: float = 0.5,
     ):
         self.repository = repository
         self.llm_ollama = llm_ollama
@@ -55,6 +73,11 @@ class ChatService:
         self.default_max_tokens = default_max_tokens
         self.moderation = moderation
         self.prompt_repo = prompt_repo
+        # Диалоговый RAG (Б5.5) — опционален; без rag_service остаётся M4-чат.
+        self.rag_service = rag_service
+        self.rag_enable_chat = rag_enable_chat
+        self.rag_condense_enabled = rag_condense_enabled
+        self.rag_score_threshold = rag_score_threshold
 
     def get_llm(self, provider: str):
         if provider == "openai":
@@ -62,6 +85,9 @@ class ChatService:
         elif provider == "openrouter":
             return  self.llm_openrouter
         return  self.llm_ollama
+
+    def _rag_active(self) -> bool:
+        return self.rag_service is not None and self.rag_enable_chat
 
     async def create_chat(
         self,
@@ -193,6 +219,179 @@ class ChatService:
             return None, None
         return chosen.id, chosen.body
 
+    async def _condense(
+        self, chat: Chat, user_content: str, history: list[ChatMessage], llm
+    ) -> str:
+        """Переписывает follow-up в самодостаточный поисковый запрос (1 LLM-вызов).
+
+        Нужен только для retrieval: вектор-поиск видит одну строку и на коротких
+        follow-up'ах («а для них?») возвращает мусор. В генерацию идёт полная
+        история, поэтому ответ модель всё равно поймёт — condense чинит поиск.
+        """
+        prior = [m for m in history[:-1] if m.content.strip()]
+        if not prior:
+            return user_content
+        history_str = "\n".join(f"{m.role}: {m.content}" for m in prior[-6:])
+        prompt = CONDENSE_TEMPLATE.format(history=history_str, question=user_content)
+        resp = await llm.chat.completions.create(
+            model=chat.model or self.default_model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.0,
+            max_tokens=128,
+        )
+        out = (resp.choices[0].message.content or "").strip()
+        return out or user_content
+
+    def _build_rag_messages(
+        self,
+        history: list[ChatMessage],
+        user_content: str,
+        context_str: str,
+    ) -> list[dict]:
+        """Сообщения для RAG-генерации: предыстория + последний вопрос с контекстом.
+
+        Полная предыстория уходит в LLM целиком — поэтому «а для них?» модель
+        понимает из контекста; пронумерованный контекст — в финальном user-сообщении.
+        """
+        from app.services.rag import CITATION_QA_TEMPLATE
+
+        messages: list[dict] = [
+            {"role": "system", "content": "Ты корпоративный ассистент базы знаний."}
+        ]
+        for m in history[:-1]:
+            messages.append({"role": m.role, "content": self._message_content_for_llm(m)})
+        messages.append(
+            {
+                "role": "user",
+                "content": CITATION_QA_TEMPLATE.format(
+                    context_str=context_str, query_str=user_content
+                ),
+            }
+        )
+        return messages
+
+    async def _send_rag(
+        self, chat: Chat, user_content: str, llm, prompt_id
+    ) -> AsyncIterator[dict]:
+        """RAG-путь: condense -> retrieve -> score-guard -> генерация с цитатами."""
+        from app.services.rag import (
+            REFUSAL_TEXT,
+            build_sources,
+            numbered_context,
+        )
+
+        history = await self.repository.list_messages(chat.id, limit=self.context_window)
+
+        # 1. Поисковый запрос: опционально переписываем follow-up (condense).
+        search_query = user_content
+        if self.rag_condense_enabled and len(history) > 1:
+            try:
+                search_query = await self._condense(chat, user_content, history, llm)
+            except Exception:
+                logger.warning("condense упал, использую сырой вопрос", exc_info=True)
+
+        # 2. Retrieval + score-guard.
+        nodes = await self.rag_service.retrieve(search_query)
+        top_score = max((n.score or 0.0 for n in nodes), default=0.0)
+        sources = build_sources(nodes)
+        if not nodes or top_score < self.rag_score_threshold:
+            logger.info(
+                "RAG score-guard: отказ chat_id=%s top_score=%.3f", chat.id, top_score
+            )
+            saved = await self.repository.append_message(
+                chat.id,
+                ChatMessage(
+                    chat_id=chat.id,
+                    role="assistant",
+                    content=REFUSAL_TEXT,
+                    sources=[],
+                    prompt_id=prompt_id,
+                ),
+            )
+            yield {"type": "token", "delta": REFUSAL_TEXT}
+            yield {"type": "sources", "sources": []}
+            yield {"type": "message_saved", "message_id": str(saved.id)}
+            return
+
+        # 3. Генерация по пронумерованному контексту.
+        messages = self._build_rag_messages(
+            history, user_content, numbered_context(nodes)
+        )
+        buffer = ""
+        usage = None
+        extra = {}
+        if chat.provider in ("openai", "openrouter"):
+            extra["stream_options"] = {"include_usage": True}
+
+        try:
+            stream = await llm.chat.completions.create(
+                model=chat.model or self.default_model,
+                messages=messages,
+                temperature=self.default_temperature,
+                max_tokens=self.default_max_tokens,
+                stream=True,
+                **extra,
+            )
+            async for chunk in stream:
+                if hasattr(chunk, "usage") and chunk.usage:
+                    usage = chunk.usage
+                if not getattr(chunk, "choices", None):
+                    continue
+                delta = chunk.choices[0].delta
+                content = getattr(delta, "content", None)
+                if content:
+                    buffer += content
+                    yield {"type": "token", "delta": content}
+        except Exception as exc:
+            logger.warning(
+                "RAG stream interrupted chat_id=%s err=%s saved_chars=%d",
+                chat.id, exc, len(buffer),
+            )
+            if buffer:
+                await self.repository.append_message(
+                    chat.id,
+                    ChatMessage(
+                        chat_id=chat.id,
+                        role="assistant",
+                        content=buffer,
+                        tokens=usage.total_tokens if usage else None,
+                        sources=sources,
+                        prompt_id=prompt_id,
+                    ),
+                )
+            yield {"type": "token", "delta": f"\n\n[Ошибка: {exc}]"}
+            return
+
+        if buffer:
+            mod_result = await self.check_output(
+                buffer, owner_external_id=chat.owner_external_id
+            )
+            if not mod_result.allowed:
+                buffer = (
+                    "Извините, ответ не может быть показан — "
+                    "он нарушает правила сервиса. "
+                    "Попробуйте переформулировать вопрос."
+                )
+                sources = []
+                yield {
+                    "type": "moderation_notice",
+                    "categories": mod_result.categories,
+                    "reasons": mod_result.reasons,
+                }
+            saved = await self.repository.append_message(
+                chat.id,
+                ChatMessage(
+                    chat_id=chat.id,
+                    role="assistant",
+                    content=buffer,
+                    tokens=usage.total_tokens if usage else None,
+                    sources=sources,
+                    prompt_id=prompt_id,
+                ),
+            )
+            yield {"type": "sources", "sources": sources}
+            yield {"type": "message_saved", "message_id": str(saved.id)}
+
     async def send_message(
         self,
         chat_id: UUID,
@@ -203,30 +402,17 @@ class ChatService:
 
         Yields структурированные события:
         - `{"type":"token","delta":"<chunk>"}` — каждый LLM-фрагмент.
+        - `{"type":"sources","sources":[...]}` — показанные источники (только RAG).
         - `{"type":"message_saved","message_id":"<uuid>"}` — ОДИН раз после
-          успешного сохранения assistant-сообщения. Нужно клиенту, чтобы
-          навесить feedback-кнопки с реальным id ответа.
+          успешного сохранения assistant-сообщения.
 
         Финальный `{"type":"done"}` добавляется в route handler, чтобы оба
         источника (упавший стрим vs нормальный) одинаково завершались.
-
-        Шаги:
-        1. Если media передан — собрать content-part через media_to_part и
-           зафиксировать его в media_refs.
-        2. Сохранить user-сообщение: content=user_content (текстовая копия для
-           логов/UI), media_refs={"mime","size","filename","part"} если media.
-        3. Загрузить чат, выбрать system_prompt по A/B (если есть кандидаты).
-        4. Загрузить историю и построить messages для LLM.
-        5. chat.completions.create с stream=True.
-        6. yield token-кадров, накапливать buffer.
-        7. Сохранить assistant-сообщение с prompt_id; yield message_saved.
         """
-
         # 1. Загружаем чат
         chat = await self.repository.get_chat(chat_id)
         if chat is None:
             raise ValueError(f"chat {chat_id} not found")
-
 
         llm = self.get_llm(chat.provider)
 
@@ -258,6 +444,12 @@ class ChatService:
             prompt_id=prompt_id,
         )
         await self.repository.append_message(chat_id, user_message)
+
+        # 4.1 Диалоговый RAG: retrieval + цитаты вместо чистого LLM-чата.
+        if self._rag_active():
+            async for event in self._send_rag(chat, user_content, llm, prompt_id):
+                yield event
+            return
 
         # 5. История + контекст
         history = await self.repository.list_messages(

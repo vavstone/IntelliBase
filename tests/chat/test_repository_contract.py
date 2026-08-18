@@ -274,3 +274,32 @@ async def test_get_chat_unknown_returns_none(chat_repository: ChatRepository):
     unknown_id = uuid4()
     result = await chat_repository.get_chat(unknown_id)
     assert result is None
+
+
+@pytest.mark.asyncio
+async def test_append_and_list_message_sources_roundtrip(chat_repository: ChatRepository):
+    """RAG-цитаты (sources) переживают append → list без потерь (Б5.5).
+
+    Регрессия этой фичи — сценарий «sources не сохраняется» (например, нет
+    колонки в БД): проверяем, что список источников {id,file_name,page,score,
+    snippet} читается обратно 1-в-1 и в обоих хранилищах (json и postgres).
+    """
+    from app.chat.domain import ChatMessage
+
+    chat = await chat_repository.create_chat(
+        owner_external_id=OWNER,
+        interface=INTERFACE,
+        provider=PROVIDER,
+        model=MODEL,
+        system_prompt=None,
+    )
+    sources = [
+        {"id": 1, "file_name": "tariffs.pdf", "page": 3, "score": 0.86, "snippet": "КПС..."},
+        {"id": 2, "file_name": "trois.md", "page": None, "score": 0.81, "snippet": "ТРОИС..."},
+    ]
+    msg = ChatMessage(chat_id=chat.id, role="assistant", content="Ответ [1] и [2].", sources=sources)
+    await chat_repository.append_message(chat.id, msg)
+
+    listed = await chat_repository.list_messages(chat.id, limit=10)
+    assert len(listed) == 1
+    assert listed[0].sources == sources

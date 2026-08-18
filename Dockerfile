@@ -17,6 +17,11 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-install-project --no-dev
 
 COPY app/ ./app/
+COPY bot/ ./bot/
+# Миграции и их конфиг нужны в образе: entrypoint гоняет `alembic upgrade head`.
+COPY alembic.ini ./
+COPY migrations/ ./migrations/
+COPY entrypoint.sh ./
 COPY pyproject.toml uv.lock ./
 
 RUN --mount=type=cache,target=/root/.cache/uv \
@@ -31,6 +36,13 @@ WORKDIR /app
 
 COPY --from=builder --chown=appuser:appuser /app /app
 
+# Каталоги для named-томов (docstore /var, кэш HuggingFace) создаём заранее
+# с владельцем appuser: иначе том примонтируется с root-владельцем, и не-root
+# процесс получит PermissionError при скачивании E5 / записи docstore.
+RUN mkdir -p /app/var /home/appuser/.cache/huggingface && \
+    chown -R appuser:appuser /app/var /home/appuser/.cache && \
+    chmod +x /app/entrypoint.sh
+
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
@@ -38,7 +50,7 @@ ENV PATH="/app/.venv/bin:$PATH" \
 USER appuser
 EXPOSE 8000
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=5s --start-period=600s --retries=3 \
     CMD python -c "import urllib.request,sys; \
 sys.exit(0) if urllib.request.urlopen('http://localhost:8000/ready', timeout=3).status == 200 else sys.exit(1)" \
     || exit 1

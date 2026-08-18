@@ -1,9 +1,20 @@
-"""RAG-endpoint: ответ по базе знаний с цитатами на источники."""
+"""RAG-endpoint: ответ по базе знаний с цитатами на источники.
+
+Контракт Б5.5: `sources` — нумерованные цитаты с id/file_name/page/score/snippet,
+`confident` — top_score >= rag_score_threshold. Каждый ответ пишет лот в
+`rag_queries` для refusal_rate и пробелов в знаниях (fail-soft — сбой лога
+не роняет ответ).
+"""
+
+import logging
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from app.deps.providers import RAGServiceDep
+from app.admin.repository import AdminRepository
+from app.deps.providers import RAGServiceDep, SessionFactoryDep
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/rag", tags=["rag"])
 
@@ -13,15 +24,18 @@ class RAGQuery(BaseModel):
 
 
 class RAGSource(BaseModel):
-    text: str
-    source: str | None = None
+    id: int                       # номер цитаты [1], [2] в тексте ответа
+    file_name: str
+    page: int | None = None
     score: float
+    snippet: str
 
 
 class RAGAnswer(BaseModel):
     answer: str
     top_score: float
     sources: list[RAGSource]
+    confident: bool               # top_score >= rag_score_threshold
 
 
 @router.post(
@@ -34,8 +48,17 @@ class RAGAnswer(BaseModel):
         503: {"description": "RAG-индекс недоступен"},
     },
 )
-async def rag_query(req: RAGQuery, rag: RAGServiceDep) -> RAGAnswer:
+async def rag_query(
+    req: RAGQuery, rag: RAGServiceDep, session_factory: SessionFactoryDep
+) -> RAGAnswer:
     if rag is None:
         raise HTTPException(status_code=503, detail="RAG-индекс недоступен")
     result = await rag.answer(req.question)
+    # Лот в rag_queries для refusal_rate и пробелов в знаниях; сбой лота не ломает ответ.
+    try:
+        await AdminRepository(session_factory).log_rag_query(
+            req.question, result["confident"], result["top_score"]
+        )
+    except Exception:
+        logger.warning("не записан rag_queries-лог", exc_info=True)
     return RAGAnswer(**result)

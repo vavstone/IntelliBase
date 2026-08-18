@@ -43,6 +43,8 @@ dependencies = [
     "llama-index-readers-file>=0.6.0",
     "llama-index-embeddings-huggingface>=0.7.0",
     "docx2txt>=0.9",
+    "pymupdf>=1.28.2",
+    "pyarrow>=18.0,<24.0",
 ]
 
 [project.optional-dependencies]

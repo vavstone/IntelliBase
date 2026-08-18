@@ -64,3 +64,12 @@ def get_rag_service(request: Request):
 
 
 RAGServiceDep = Annotated[Any, Depends(get_rag_service)]
+
+
+def get_ingestion_service(request: Request):
+    """Индексатор корпуса (офлайн-контур), собранный в lifespan. None — если
+    Qdrant был недоступен на старте: ручки /documents отдают 503."""
+    return getattr(request.app.state, "ingestion_service", None)
+
+
+IngestionServiceDep = Annotated[Any, Depends(get_ingestion_service)]

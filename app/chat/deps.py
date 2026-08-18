@@ -11,7 +11,7 @@ from app.chat.repositories.pg_repo import (
 from app.chat.repository import ChatRepository
 from app.chat.service import ChatService
 from app.core.config import get_settings
-from app.deps.providers import SessionFactoryDep, LLMOllamaDep, LLMOpenaiDep, LLMOpenrouterDep
+from app.deps.providers import SessionFactoryDep, LLMOllamaDep, LLMOpenaiDep, LLMOpenrouterDep, RAGServiceDep
 from app.moderation.service import ModerationService
 
 
@@ -47,6 +47,7 @@ def get_chat_service(
     llm_openai: LLMOpenaiDep,
     llm_openrouter: LLMOpenrouterDep,
 	session_factory: SessionFactoryDep,
+    rag_service: RAGServiceDep,
 ) -> ChatService:
     settings = get_settings()
 
@@ -78,6 +79,11 @@ def get_chat_service(
         default_model=settings.llm.default_model,
 		moderation=moderation,
         prompt_repo=prompt_repo,
+        # Диалоговый RAG (Б5.5): подключаем сервис, если он поднят в lifespan.
+        rag_service=rag_service,
+        rag_enable_chat=settings.rag_enable_chat,
+        rag_condense_enabled=settings.rag_condense_enabled,
+        rag_score_threshold=settings.rag_score_threshold,
     )
 
 

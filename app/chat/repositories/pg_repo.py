@@ -112,6 +112,7 @@ class PostgresChatRepository:
             media_refs=message.media_refs,
             tokens=message.tokens,
             prompt_id=message.prompt_id,
+            sources=message.sources,
             created_at=message.created_at,
         )
         self.session.add(row)

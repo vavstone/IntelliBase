@@ -47,6 +47,21 @@ def _to_tg_markdown(text: str) -> str:
         # на это вернёт ошибку, и мы упадём в fallback без parse_mode.
         return text
 
+
+def format_sources(sources: list[dict]) -> str:
+    """Плейн-текстовая подпись источников RAG-ответа (без HTML/Markdown-тегов).
+
+    Берём до 5 источников: Telegram-сообщение ограничено 4096 символами, а
+    клиенту важны верхние по score. Формат: «[1] file.pdf, стр. 3».
+    """
+    if not sources:
+        return ""
+    lines = ["Источники:"]
+    for s in sources[:5]:
+        page = f", стр. {s['page']}" if s.get("page") else ""
+        lines.append(f"[{s['id']}] {s.get('file_name', '?')}{page}")
+    return "\n".join(lines)
+
 # Минимальный интервал между sendMessageDraft вызовами на один draft.
 # Telegram flood-control режет ~30 вызовов/сек суммарно; на длинном LLM-стриме
 # (десятки токенов в секунду) без тротлинга мгновенно ловим TelegramRetryAfter.
@@ -65,6 +80,7 @@ async def stream_to_chat(
     draft_id = uuid.uuid4().int & 0xFFFFFFFF or 1  # ensure non-zero
     buffer = ""
     assistant_message_id: str | None = None
+    sources: list[dict] = []
     last_draft_at = 0.0
 
     # Первый кадр — пустой draft-плейсхолдер. Если метод недоступен (старая
@@ -106,24 +122,32 @@ async def stream_to_chat(
                 pass
         elif etype == "message_saved":
             assistant_message_id = event.get("message_id")
+        elif etype == "sources":
+            sources = event.get("sources") or []
 
     if buffer:
         reply_markup = (
             feedback_kb(assistant_message_id) if assistant_message_id else None
         )
-        await _send_final(message, buffer, reply_markup)
+        await _send_final(message, buffer, reply_markup, sources)
     else:
         await message.answer("Не получилось получить ответ от модели. Попробуйте ещё раз.")
     return buffer
 
 
-async def _send_final(message: Message, text: str, reply_markup) -> None:
-    """Шлёт финальный send_message с Telegram MarkdownV2.
+async def _send_final(
+    message: Message, text: str, reply_markup, sources: list[dict] | None = None
+) -> None:
+    """Шлёт финальный send_message с Telegram MarkdownV2 + источниками.
 
     Если MarkdownV2-парсер Telegram'а спотыкается на конкретном тексте
     (бывает на нестандартных конструкциях LLM) — graceful fallback на plain.
     """
-    md = _to_tg_markdown(text)
+    body = text.strip()
+    src = format_sources(sources or [])
+    if src:
+        body = f"{body}\n{src}"
+    md = _to_tg_markdown(body)
     try:
         await message.bot.send_message(
             chat_id=message.chat.id,
@@ -135,7 +159,7 @@ async def _send_final(message: Message, text: str, reply_markup) -> None:
         log.warning("MarkdownV2 parse failed, fallback to plain: %s", e)
         await message.bot.send_message(
             chat_id=message.chat.id,
-            text=text,
+            text=body,
             reply_markup=reply_markup,
         )
 
@@ -149,6 +173,7 @@ async def _stream_via_edit_text(
     sent = await message.answer("…")
     buffer = ""
     assistant_message_id: str | None = None
+    sources: list[dict] = []
     last_edit = monotonic()
 
     async for event in events:
@@ -165,12 +190,18 @@ async def _stream_via_edit_text(
                     last_edit = monotonic()
         elif etype == "message_saved":
             assistant_message_id = event.get("message_id")
+        elif etype == "sources":
+            sources = event.get("sources") or []
 
     if buffer:
         reply_markup = (
             feedback_kb(assistant_message_id) if assistant_message_id else None
         )
-        md = _to_tg_markdown(buffer)
+        body = buffer.strip()
+        src = format_sources(sources)
+        if src:
+            body = f"{body}\n{src}"
+        md = _to_tg_markdown(body)
         try:
             await sent.edit_text(
                 md,
@@ -179,7 +210,7 @@ async def _stream_via_edit_text(
             )
         except TelegramBadRequest:
             try:
-                await sent.edit_text(buffer, reply_markup=reply_markup)
+                await sent.edit_text(body, reply_markup=reply_markup)
             except (TelegramBadRequest, TelegramRetryAfter):
                 pass
         except TelegramRetryAfter:

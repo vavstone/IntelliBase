@@ -16,6 +16,11 @@ services:
     image: llm-service:dev
     container_name: llm-service
     restart: unless-stopped
+    # Перед uvicorn — `alembic upgrade head` (схема БД только через миграции).
+    entrypoint: ["/app/entrypoint.sh"]
+    # Явный command обязателен: при заданном entrypoint Compose не наследует
+    # CMD из образа (Cmd становится null), и entrypoint получает пустые "$@".
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
     ports:
       - "8000:8000"
     env_file:
@@ -23,10 +28,24 @@ services:
     environment:
       REDIS_URL: redis://redis:6379/0
       PHOENIX_COLLECTOR_ENDPOINT: http://phoenix:4317
-      DATABASE_URL: postgresql+asyncpg://chat:${POSTGRES_PASSWORD:-pswd}@db:5433/intellibase
+      DATABASE_URL: postgresql+asyncpg://chat:${POSTGRES_PASSWORD:-pswd}@db:5432/intellibase
       # Если вы хотите, чтобы приложение сразу использовало postgres-репозиторий:
       CHAT_REPOSITORY: postgres
+      QDRANT_URL: http://qdrant:6333
+      # Ollama крутится на хосте — из контейнера достижим через host.docker.internal.
+      LLM__OLLAMA_BASE_URL: http://host.docker.internal:11434/v1
+    volumes:
+      # Корпус + загруженные документы.
+      - ./data:/app/data
+      # Состояние индексации (docstore) и кэши — отдельный том, НЕ общая папка
+      # с хостом: иначе docstore с локальной машины рассинхронизируется с пустым
+      # Qdrant в Docker, и первичная индексация будет пропущена (RAG → 503).
+      - rag_data:/app/var
+      # Кэш HuggingFace: E5 и re-ranker скачиваются один раз и переиспользуются.
+      - hf_cache:/home/appuser/.cache/huggingface
     depends_on:
+      db:
+        condition: service_healthy
       redis:
         condition: service_healthy
       phoenix:
@@ -42,7 +61,42 @@ services:
       interval: 15s
       timeout: 5s
       retries: 3
-      start_period: 15s
+      # Lifespan грузит E5-модель и (на первом up) скачивает её ~2 ГБ + индексирует
+      # корпус — это минуты. Даём запас, чтобы приложение не пометили unhealthy,
+      # пока оно ещё стартует.
+      start_period: 600s
+
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: llm-service:dev
+    container_name: chat-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    # В environment — только сетевые host'ы docker-сети; токены и порты читает
+    # pydantic-settings из .env (BOT_TOKEN, BOT_ADMIN_IDS, BOT_API_PORT, ...).
+    environment:
+      BACKEND_URL: http://app:8000
+    # /notify нужен только из app-сервиса по внутренней сети; наружу не пробрасываем.
+    expose:
+      - "9000"
+    depends_on:
+      app:
+        condition: service_healthy
+    command: ["python", "-m", "bot"]
+    healthcheck:
+      # Бот слушает FastAPI на 9000 (не 8000) — проверяем его собственный /health.
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://localhost:9000/health', timeout=3).status == 200 else sys.exit(1)"
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
   redis:
     image: redis:7.4-alpine
@@ -90,7 +144,8 @@ services:
     volumes:
       - qdrant_storage:/qdrant/storage
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6333/collections"]
+      # В образе qdrant нет curl — проверяем доступность порта через bash /dev/tcp.
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/localhost/6333' || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -101,3 +156,5 @@ volumes:
   phoenix_data:
   postgres_data:
   qdrant_storage:
+  hf_cache:
+  rag_data:

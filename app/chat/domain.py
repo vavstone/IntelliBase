@@ -36,6 +36,8 @@ class ChatMessage(BaseModel):
     media_refs: dict | None = None
     tokens: int | None = None
     prompt_id: UUID | None = None
+    # Показанные источники RAG-ответа (список {id,file_name,page,score,snippet}).
+    sources: list[dict] | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 class Chat(BaseModel):

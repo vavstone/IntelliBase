@@ -45,6 +45,9 @@ class ChatMessageRow(Base):
     media_refs: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     tokens: Mapped[int | None]
     prompt_id: Mapped[UUID | None]
+    # Показанные источники RAG-ответа (id/file_name/page/score/snippet) — кладутся
+    # рядом с assistant-сообщением, чтобы фидбек связывался с источниками по message_id.
+    sources: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TimestampTZ, default=lambda: datetime.now(UTC)
     )
@@ -153,4 +156,23 @@ class AlertRow(Base):
     )
     acked_at: Mapped[datetime | None] = mapped_column(
         TimestampTZ, nullable=True
+    )
+
+
+class RagQueryRow(Base):
+    """Лог RAG-запросов для аналитики (refusal_rate, пробелы в знаниях).
+
+    Каждый ответ /rag/query (и диалогового RAG) пишет строку: нормализованный
+    вопрос, флаг confident и top_score. Пробелы считаются group_by по
+    question_normalized среди строк с confident=false.
+    """
+
+    __tablename__ = "rag_queries"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    question_normalized: Mapped[str]
+    confident: Mapped[bool] = mapped_column(default=False)
+    top_score: Mapped[float] = mapped_column(default=0.0)
+    created_at: Mapped[datetime] = mapped_column(
+        TimestampTZ, default=lambda: datetime.now(UTC)
     )

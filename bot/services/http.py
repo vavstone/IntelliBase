@@ -13,13 +13,15 @@ def build_http_client(settings: BotSettings) -> httpx.AsyncClient:
     Прокси используется только для внешних URL (не localhost/127.0.0.1),
     чтобы внешний прокси-сервер не пытался достучаться до локального бэкенда.
     """
-    # Прокси включаем только если backend НЕ на localhost
+    # Прокси включаем только если backend внешний. Внутренние хосты — localhost,
+    # 127.0.0.1 и короткие имена docker-сервисов без точки (`app`, `backend`) —
+    # ходим напрямую, иначе внешний прокси не достучится до них.
     proxy = settings.proxy_url
     if proxy and settings.backend_url:
         from urllib.parse import urlparse
         host = urlparse(settings.backend_url).hostname or ""
-        if host in ("localhost", "127.0.0.1", "0.0.0.0"):
-            proxy = None  # localhost — ходим напрямую
+        if host in ("localhost", "127.0.0.1", "0.0.0.0") or "." not in host:
+            proxy = None  # внутренний хост — ходим напрямую
 
     return httpx.AsyncClient(
         base_url=settings.backend_url,

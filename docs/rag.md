@@ -120,3 +120,196 @@ top-1 ≈ 0.71. Поэтому основной предохранитель —
 «нет информации», не выдумывая, хотя top-1 выше порога. Для OpenAI-эмбеддингов из
 референса шкала другая (off-topic ≈ 0.17), там порог 0.3 отрезал бы больше — поэтому
 порог вынесен в конфиг и калибруется под модель.
+
+
+---
+
+# Корпоративный RAG-ассистент — отчёт по Блоку 5.5
+
+Корпоративный RAG поверх дипломного сервиса: офлайн-контур индексации
+(`IngestionPipeline` + UPSERTS) и онлайн-контур запроса (retrieval → score-guard
+→ генерация с цитатами). Два независимых контура, единственная граница между
+ними — векторное хранилище Qdrant.
+
+## Архитектура: два независимых контура
+
+```mermaid
+flowchart LR
+    subgraph Offline["Офлайн-контур — индексация (SLA: фон, некритично)"]
+        A["Документы<br>PDF / DOCX / HTML / MD"] --> B["Парсинг по формату<br>PyMuPDF / Docx / HTMLTag / Markdown"]
+        B --> C["Очистка + метаданные<br>category, version, page, last_modified"]
+        C --> D["SentenceSplitter<br>512 / 64"]
+        D --> E["Эмбеддинги<br>multilingual-e5-large"]
+        E --> F[("Qdrant<br>rag_block_05")]
+        G["docstore<br>var/rag_docstore.json"] -.->|"UPSERTS: 0 changed / N unchanged"| D
+    end
+    subgraph Online["Онлайн-контур — запрос (SLA: низкая задержка)"]
+        H["Вопрос"] --> I["retrieval top-k=10"]
+        I --> J["реранкер (опц.)<br>bge-reranker-v2-m3 → top-5"]
+        J --> K{"score-guard<br>top_score >= 0.80?"}
+        K -->|нет| L["Отказ:<br>«не нашёл»"]
+        K -->|да| M["LLM (Ollama)<br>нумерованный контекст"]
+        M --> N["Ответ + цитаты [1][2]<br>+ sources"]
+    end
+    F --> I
+```
+
+Два контура живут в разных процессах: индексация — фоновая (`scripts/ingest.py`,
+`POST /documents/*`), запрос — онлайн (`POST /rag/query`, `POST /chats/{id}/messages`).
+
+## Контур индексации
+
+### Парсинг по форматам
+
+`app/services/ingestion.py` маршрутизирует файлы по расширению на
+специализированные ридеры LlamaIndex:
+
+| Формат | Ридер | Особенность |
+|--------|-------|-------------|
+| PDF | `PyMuPDFReader` | один Document на страницу → в цитатах есть номер страницы |
+| DOCX | `DocxReader` | стили, таблицы |
+| HTML | `HTMLTagReader` | выгрузки Confluence/Notion |
+| MD | `MarkdownReader` | README/runbook |
+
+Перед чанкингом текст очищается (`clean`): убираются колонтитулы
+(`Стр. 12 из 47`), склеиваются переносы (`авто-\nмобиль`), нормализуются
+переводы строк, вырезаются URL.
+
+### Метаданные из путей и файла
+
+`file_metadata` обогащает каждый документ: `source` (имя файла), `category`
+(папка верхнего уровня корпуса), `doc_type` (расширение), `version` (год из имени),
+`visibility`, `last_modified` (из `stat().st_mtime`).
+
+Технические/шумные поля исключаются из эмбеддинга через
+`excluded_embed_metadata_keys` (`file_path`, `source`, `page`, `version`,
+`last_modified`, …). `category` остаётся в эмбеддинге — это осмысленная
+семантическая метка, помогающая поиску.
+
+> **Про идемпотентность.** `doc.hash` в LlamaIndex зависит от метаданных, поэтому
+> в метаданные НЕ кладётся меняющееся от запуска к запуску поле (типа
+> `indexed_at=date.today()`). Используется `last_modified` из stat-файла — он
+> стабилен, пока файл не менялся, и UPSERTS корректно пропускает неизменённое.
+
+### Параметры чанкинга (из ДЗ 5.4)
+
+`SentenceSplitter(chunk_size=512, chunk_overlap=64)` — конфигурация, выбранная
+по итогам эксперимента `docs/chunking_experiment.md` (Hit@5=1.0, MRR@10=0.951,
+Recall@10=0.979 на golden-set из 20+ вопросов).
+
+### IngestionPipeline + UPSERTS
+
+```python
+IngestionPipeline(
+    transformations=[SentenceSplitter(512, 64), HuggingFaceEmbedding("multilingual-e5-large")],
+    docstore=SimpleDocumentStore(persist),      # var/rag_docstore.json
+    vector_store=QdrantVectorStore("rag_block_05"),
+    docstore_strategy=DocstoreStrategy.UPSERTS,
+)
+```
+
+Повторный запуск `scripts/ingest.py` показывает **0 changed, N unchanged** —
+дедуп по `doc.id_` + `doc.hash`, переэмбеддинг только изменённых документов.
+
+### Инкрементальная переиндексация
+
+- `POST /documents/upload` — загрузка одного файла, индексация в `BackgroundTasks`
+  (202 Accepted, файл доступен в ответах через 30–60 с).
+- `POST /documents/reindex` — `full` (вычистить и заново), `incremental`
+  (UPSERTS по хешам), `files` (точечно).
+- Упавший файл изолируется в `.failed` и виден в логах.
+
+## Контур запроса
+
+### retrieval → score-guard → синтез
+
+1. **Retrieval**: `rag_top_k=10` ближайших чанков из Qdrant.
+2. **Реранкер** (опционально, `rag_rerank_enabled=false` по умолчанию):
+   `BAAI/bge-reranker-v2-m3` пересортировывает top-10 и оставляет top-5.
+   Без него — dense-топ обрезается до `rag_rerank_top_n=5`. Тяжёлая зависимость
+   (~2.2 ГБ), поэтому выключена и включается флагом.
+3. **Score-guard**: если `max(score) < rag_score_threshold` — LLM не вызывается,
+   сразу отдаётся отказ. Двухслойная защита: код + промпт.
+4. **Синтез**: нумерованный контекст + `CITATION_QA_TEMPLATE` → LLM ставит
+   цитаты `[1]`, `[2]`; `parse_citations` разворачивает их в
+   `[1 — file.pdf]`.
+
+### Порог отказа (`rag_score_threshold`)
+
+**0.80** — обоснован распределением top-1 score на корпусе (E5
+`multilingual-e5-large`, косинус нормализован):
+
+| Тип запроса | top-1 score |
+|-------------|-------------|
+| Релевантные (5 вопросов по ФТС) | 0.837 – 0.867 |
+| Вне-базы (4 вопроса: погода, борщ, футбол, пицца) | 0.737 – 0.787 |
+
+У E5 косинусная близость сжата к единице: релевантное ~0.84, off-topic ~0.76.
+Порог 0.80 лежит в зазоре между ними и отсекает вне-базы запросы ДО вызова LLM.
+Для OpenAI `text-embedding-3-small` шкала другая (off-topic ≈ 0.17) — порог
+калибруется заново под конкретную модель. Помимо score-guard'а, от галлюцинации
+страхует промпт («если ответа нет — честно скажи»).
+
+### Цитаты и sources
+
+Контракт `answer()` — `{answer, top_score, sources, confident}`:
+
+```json
+{
+  "answer": "КПС «Тарифы — Реестр ОИС» включает структурные подразделения и интеграции [1 — окончательный вариант кпс ТАРИФЫ РЕЕСТР ОИС (+НПКИ+УТОВЭК).docx].",
+  "top_score": 0.86,
+  "sources": [
+    {"id": 1, "file_name": "окончательный вариант кпс ТАРИФЫ РЕЕСТР ОИС (+НПКИ+УТОВЭК).docx", "page": null, "score": 0.86, "snippet": "..."}
+  ],
+  "confident": true
+}
+```
+
+`confident` выводится из `top_score >= rag_score_threshold`, `sources` — пустой
+список при отказе.
+
+## Диалоговый RAG (multi-turn)
+
+Диалог идёт через `POST /chats/{id}/messages` (SSE, история в Postgres из M4).
+История целиком уходит в LLM при генерации, поэтому «а для них?» модель понимает
+из контекста. Поиск на коротком follow-up чинит **condense**: один LLM-вызов
+переписывает follow-up в самодостаточный запрос (с учётом окна истории), и уже
+его получает retrieval (`rag_condense_enabled`). Финальным SSE-событием отдаётся
+`sources` с цитатами; `sources` сохраняются рядом с assistant-сообщением
+(`chat_messages.sources`) для связки фидбека с источниками.
+
+```mermaid
+flowchart LR
+    A["История (Postgres)"] --> C["condense:<br>1 LLM-вызов"]
+    B["Follow-up:<br>«а для них?»"] --> C
+    C --> D["Самодостаточный запрос"]
+    D --> E["Поиск в Qdrant"]
+    E --> F["Чанки"]
+    F --> G["LLM: ответ с цитатами"]
+    B --> G
+```
+
+## Endpoints
+
+| Метод | Путь | Назначение |
+|-------|------|------------|
+| POST | `/rag/query` | Одношаговый ответ с цитатами (синхронно) |
+| POST | `/chats/{id}/messages` | Диалоговый стриминг SSE + `event: sources` |
+| POST | `/chats/{id}/messages/{mid}/feedback` | Оценка up/down |
+| POST | `/documents/upload` | Загрузка файла (202, фоновая индексация) |
+| POST | `/documents/reindex` | full / incremental / files |
+| GET | `/chats/admin/stats` | refusal_rate, negative_feedback_rate, knowledge_gaps |
+
+## Модели
+
+| Роль | Модель | Примечание |
+|------|--------|-----------|
+| Эмбеддинги | `intfloat/multilingual-e5-large` (dim 1024) | self-hosted, E5-префиксы `query:`/`passage:` |
+| LLM | `gemma3:4b` (Ollama, temperature=0) | `rag_llm_model` |
+| Реранкер | `BAAI/bge-reranker-v2-m3` | опционально, ~2.2 ГБ |
+
+## Инфраструктура
+
+`docker compose up -d` поднимает `app` (FastAPI) + `qdrant` + `redis` + `bot`
+(Telegram). Корпус (`./data`) и docstore (`./var`) монтируются в app; кэш
+HuggingFace — отдельный volume (`hf_cache`).
