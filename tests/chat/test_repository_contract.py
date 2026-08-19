@@ -86,23 +86,31 @@ async def json_repo(tmp_path: Path) -> JsonChatRepository:
 
 # ===== Основная параметризованная фикстура =====
 
-@pytest_asyncio.fixture(params=["json", "postgres"])
-async def chat_repository(request, json_repo: JsonChatRepository, pg_engine) -> AsyncIterator[ChatRepository]:
+@pytest_asyncio.fixture
+async def json_chat_repository(json_repo: JsonChatRepository) -> AsyncIterator[ChatRepository]:
+    """JSON-репозиторий (без БД)."""
+    yield json_repo
+
+
+@pytest_asyncio.fixture
+async def postgres_chat_repository(pg_engine) -> AsyncIterator[ChatRepository]:
+    """Postgres-репозиторий: новая сессия, таблицы очищаются перед тестом."""
+    async_session = async_sessionmaker(pg_engine, expire_on_commit=False)
+    async with async_session() as session:
+        # Очищаем таблицы перед каждым тестом
+        await session.execute(text("TRUNCATE TABLE chats, chat_messages RESTART IDENTITY CASCADE;"))
+        await session.commit()
+        yield PostgresChatRepository(session)
+
+
+@pytest.fixture(params=["json_chat_repository", "postgres_chat_repository"])
+def chat_repository(request) -> ChatRepository:
     """
-    Возвращает репозиторий в зависимости от параметра.
-    Для 'postgres' создаёт новую сессию и очищает таблицы.
+    Параметризованный диспетчер: выбирает json- или postgres-репозиторий.
+    Синхронный по замыслу: async-фикстуры поднимаются через getfixturevalue
+    вне уже запущенного event loop (иначе pg_engine лениво не поднять).
     """
-    if request.param == "json":
-        yield json_repo
-    elif request.param == "postgres":
-        async_session = async_sessionmaker(pg_engine, expire_on_commit=False)
-        async with async_session() as session:
-            # Очищаем таблицы перед каждым тестом
-            await session.execute(text("TRUNCATE TABLE chats, chat_messages RESTART IDENTITY CASCADE;"))
-            await session.commit()
-            yield PostgresChatRepository(session)
-    else:
-        raise ValueError(f"Unknown repository type: {request.param}")
+    return request.getfixturevalue(request.param)
 
 
 # ===== Константы =====
