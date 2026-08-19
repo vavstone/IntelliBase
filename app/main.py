@@ -24,7 +24,7 @@ from app.core.exceptions import (
     LLMTimeoutError,
     LLMUnsupportedCountryError
 )
-from app.routers import chat, documents, health, models, rag
+from app.routers import categories, chat, documents, health, models, rag
 
 from app.observability.tracing import setup_tracing
 from app.observability.logger import setup_logging
@@ -360,6 +360,7 @@ async def handle_validation(request: Request, exc: RequestValidationError):
     )
 
 
+app.include_router(categories.router)
 app.include_router(chat.router)
 app.include_router(chat_router)
 app.include_router(admin_router)

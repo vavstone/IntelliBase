@@ -19,7 +19,6 @@
 from __future__ import annotations
 
 import argparse
-import re
 import shutil
 import sys
 from pathlib import Path
@@ -43,22 +42,32 @@ N_MD = 8
 N_HTML = 8
 
 
-def _sanitize(name: str) -> str:
-    """Заменяет пробелы и не-буквенно-цифровые символы на '_', обрезает хвосты."""
-    cleaned = re.sub(r"[^\w.\-]+", "_", name, flags=re.UNICODE).strip("_")
-    return cleaned or "unnamed"
+# Таксономия ПС: русская папка исходников -> латинский slug (см. техдолг
+# category-taxonomy). Пересечения («Малахит - Тарифы», «Постконтроль -
+# Тарифы») и неизвестное -> raznoe.
+CATEGORY_SLUG: dict[str, str] = {
+    "Тарифы": "tarify",
+    "Малахит": "malahit",
+    "Разное": "raznoe",
+    "Малахит - Тарифы": "raznoe",
+    "Малахит_-_Тарифы": "raznoe",
+    "Постконтроль": "postkontrol",
+    "Постконтроль - Тарифы": "raznoe",
+    "Таможня и Право": "tamozhnya_pravo",
+}
 
 
 def category_from_orig(path: Path) -> str:
-    """`orig_docs/ФТ_2023/Малахит/.../file.pdf` -> `Малахит`.
+    """`orig_docs/ФТ_2023/Малахит/.../file.pdf` -> `malahit`.
 
-    Категория — папка уровня сразу под годовой (`ФТ_2023`).
+    Категория — папка уровня сразу под годовой (`ФТ_2023`); русское имя
+    мапится на slug ПС, пересечения и неизвестное — `raznoe`.
     """
     rel = path.relative_to(ORIG)
     parts = rel.parts
     if len(parts) >= 2:
-        return _sanitize(parts[1])
-    return "general"
+        return CATEGORY_SLUG.get(parts[1], "raznoe")
+    return "raznoe"
 
 
 def _unique_target(category: str, filename: str, seen: dict[str, int]) -> Path:

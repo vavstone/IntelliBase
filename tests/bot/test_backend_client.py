@@ -309,3 +309,56 @@ async def test_send_message_with_media_sends_multipart():
     assert b"image/png" in body or b"filename" in body
     assert b"caption" in body
 
+
+# ── category field ──────────────────────────────────────────────────────
+
+
+@pytest.mark.anyio
+async def test_send_message_includes_category_field():
+    """При заданной категории slug уходит отдельным полем `category`."""
+    transport, captured = _capturing_transport()
+    http = httpx.AsyncClient(transport=transport, base_url="http://test.local")
+    backend = BackendClient(http)
+    chat_id = UUID("d0000000-0000-0000-0000-000000000001")
+
+    async for _ in backend.send_message(
+        chat_id, "hi", owner_external_id="u1", category="tarify"
+    ):
+        pass
+
+    req = captured[0]
+    assert b"category=tarify" in req.content
+
+
+@pytest.mark.anyio
+async def test_send_message_omits_category_when_absent():
+    """Без категории поле category не добавляется."""
+    transport, captured = _capturing_transport()
+    http = httpx.AsyncClient(transport=transport, base_url="http://test.local")
+    backend = BackendClient(http)
+    chat_id = UUID("e0000000-0000-0000-0000-000000000001")
+
+    async for _ in backend.send_message(chat_id, "hi", owner_external_id="u1"):
+        pass
+
+    req = captured[0]
+    assert b"category=" not in req.content
+
+
+# ── list_categories ─────────────────────────────────────────────────────
+
+
+@pytest.mark.anyio
+async def test_list_categories_returns_json():
+    """GET /categories возвращает [{slug, title}]."""
+    transport = httpx.MockTransport(
+        lambda req: httpx.Response(
+            200, json=[{"slug": "tarify", "title": "Тарифы"}]
+        )
+    )
+    http = httpx.AsyncClient(transport=transport, base_url="http://test.local")
+    backend = BackendClient(http)
+
+    result = await backend.list_categories()
+    assert result == [{"slug": "tarify", "title": "Тарифы"}]
+

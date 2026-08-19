@@ -52,6 +52,13 @@ def _make_fsm_context() -> FSMContext:
     return FSMContext(storage=storage, key="test:67890")
 
 
+def _make_backend(categories: list[dict] | None = None) -> AsyncMock:
+    """BackendClient mock with list_categories."""
+    backend = AsyncMock()
+    backend.list_categories = AsyncMock(return_value=categories or [])
+    return backend
+
+
 # ── /ask command ─────────────────────────────────────────────────────────
 
 @pytest.mark.anyio
@@ -59,8 +66,9 @@ async def test_cmd_ask_sets_state_and_sends_keyboard():
     """/ask sets AskFlow.waiting_for_topic and answers with keyboard."""
     msg = _make_message("/ask")
     ctx = _make_fsm_context()
+    backend = _make_backend([{"slug": "tarify", "title": "Тарифы"}])
 
-    await cmd_ask(msg, state=ctx)
+    await cmd_ask(msg, state=ctx, backend=backend)
 
     current = await ctx.get_state()
     assert current == AskFlow.waiting_for_topic
@@ -69,6 +77,22 @@ async def test_cmd_ask_sets_state_and_sends_keyboard():
     call_args = msg.answer.call_args
     assert call_args.kwargs.get("reply_markup") is not None
     assert "Выберите тему" in call_args.args[0]
+
+
+@pytest.mark.anyio
+async def test_cmd_ask_falls_back_when_backend_fails():
+    """При сбое GET /categories меню строится из seed-категорий (fallback)."""
+    msg = _make_message("/ask")
+    ctx = _make_fsm_context()
+    backend = _make_backend()
+    backend.list_categories = AsyncMock(side_effect=Exception("down"))
+
+    await cmd_ask(msg, state=ctx, backend=backend)
+
+    data = await ctx.get_data()
+    # fallback — 7 seed-категорий из DEFAULT_CATEGORIES
+    assert len(data["categories"]) == 7
+    assert data["categories"][0]["slug"] == "tarify"
 
 
 # ── topic selection ──────────────────────────────────────────────────────
@@ -87,7 +111,7 @@ async def test_on_topic_selected_transitions_to_waiting_for_question():
     assert current == AskFlow.waiting_for_question
 
     data = await ctx.get_data()
-    assert data["topic"] == "proj_doc"
+    assert data["category"] == "proj_doc"
 
     cb.message.edit_text.assert_awaited_once()
     cb.answer.assert_awaited_once()
@@ -103,7 +127,26 @@ async def test_on_topic_selected_slug_is_stored():
     await on_topic_selected(cb, state=ctx)
 
     data = await ctx.get_data()
-    assert data["topic"] == "db_desc"
+    assert data["category"] == "db_desc"
+
+
+@pytest.mark.anyio
+async def test_on_topic_all_sets_no_category():
+    """"Все ПС" → category=None (поиск без фильтра по категории)."""
+    cb = _make_callback("topic:all")
+    ctx = _make_fsm_context()
+    await ctx.set_state(AskFlow.waiting_for_topic)
+
+    await on_topic_selected(cb, state=ctx)
+
+    current = await ctx.get_state()
+    assert current == AskFlow.waiting_for_question
+
+    data = await ctx.get_data()
+    assert data.get("category") is None
+
+    cb.message.edit_text.assert_awaited_once()
+    assert "Все ПС" in cb.message.edit_text.call_args.args[0]
 
 
 # ── cancel from topic selection ──────────────────────────────────────────

@@ -32,10 +32,22 @@ def test_category_from_path_uses_top_folder() -> None:
     assert category_from_path("data/finance/policy.pdf") == "finance"
 
 
-def test_category_from_path_defaults_to_general() -> None:
-    assert category_from_path("/tmp/loose_file.pdf") == "general"
-    assert category_from_path("data") == "general"
-    assert category_from_path("data/kb") == "general"
+def test_category_from_path_slug_folder() -> None:
+    # slug-папки ПС (новая таксономия) проходят как есть.
+    assert category_from_path("data/kb/malahit/file.pdf") == "malahit"
+    assert category_from_path("data/kb/tarify/2025/заявка.docx") == "tarify"
+
+
+def test_category_from_path_root_file_falls_back_to_raznoe() -> None:
+    # Корневой файл (data/kb/<file>) не должен возвращать имя файла как категорию.
+    assert category_from_path("data/kb/file.pdf") == "raznoe"
+    assert category_from_path("data/kb/ГУИТ_ДТ.docx") == "raznoe"
+
+
+def test_category_from_path_defaults_to_raznoe() -> None:
+    assert category_from_path("/tmp/loose_file.pdf") == "raznoe"
+    assert category_from_path("data") == "raznoe"
+    assert category_from_path("data/kb") == "raznoe"
 
 
 def test_doc_type_from_path() -> None:

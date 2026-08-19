@@ -42,6 +42,7 @@ from llama_index.readers.file import (
 )
 from llama_index.vector_stores.qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient
+from qdrant_client.models import PayloadSchemaType
 
 from app.core.config import Settings as AppSettings
 
@@ -106,13 +107,26 @@ def clean(text: str) -> str:
 
 
 def category_from_path(path: str) -> str:
-    """`data/kb/finance/2025/policy.pdf` -> `finance` (папка верхнего уровня корпуса)."""
+    """`data/kb/finance/2025/policy.pdf` -> `finance` (папка верхнего уровня корпуса).
+
+    Корневой файл без категорийной подпапки (`data/kb/<file>`) -> `raznoe`, а
+    не имя файла: иначе загруженный в корень документ получает категорией
+    собственное имя (баг категоризации, см. техдолг category-taxonomy).
+    """
     parts = Path(path).parts
     for anchor in _CATEGORY_ANCHORS:
-        if anchor in parts:
-            idx = parts.index(anchor)
-            return parts[idx + 1] if len(parts) > idx + 1 else "general"
-    return "general"
+        if anchor not in parts:
+            continue
+        idx = parts.index(anchor)
+        # Якорь — последний сегмент (напр. "data" или "data/kb"): категории нет.
+        if len(parts) <= idx + 1:
+            return "raznoe"
+        candidate = parts[idx + 1]
+        # candidate — сам файл (последний сегмент с расширением), а не папка.
+        if len(parts) == idx + 2 and Path(candidate).suffix:
+            return "raznoe"
+        return candidate
+    return "raznoe"
 
 
 def doc_type_from_path(path: str) -> str:
@@ -231,6 +245,30 @@ class IngestionService:
             return True
         return self._client.count(self._settings.rag_collection).count == 0
 
+    def _ensure_payload_indexes(self) -> None:
+        """Регистрирует payload-индексы для фильтруемых полей (category, visibility).
+
+        `MetadataFilter` (build_filters в rag.py) фильтрует по этим ключам;
+        KEYWORD-индекс делает фильтрацию по категории не деградирующей на больших
+        корпусах. Идемпотентно: повторная регистрация существующего индекса —
+        no-op (4xx глушится).
+        """
+        if not self._client.collection_exists(self._settings.rag_collection):
+            return
+        for field in ("category", "visibility"):
+            try:
+                self._client.create_payload_index(
+                    collection_name=self._settings.rag_collection,
+                    field_name=field,
+                    field_schema=PayloadSchemaType.KEYWORD,
+                )
+            except Exception:
+                logger.debug(
+                    "payload-индекс %s уже зарегистрирован или недоступен",
+                    field,
+                    exc_info=True,
+                )
+
     def _collect_files(self, input_files: list[Path] | None = None) -> list[Path]:
         if input_files:
             return [Path(p) for p in input_files]
@@ -315,6 +353,7 @@ class IngestionService:
         documents = self._read()
         changed, unchanged = self._changed_unchanged(documents)
         nodes = self._pipeline.run(documents=documents, show_progress=True)
+        self._ensure_payload_indexes()
         self._persist_docstore()
         logger.info(
             "ingestion: корпус проиндексирован документов=%d нод=%d "
@@ -333,6 +372,7 @@ class IngestionService:
             return 0
         documents = self._read(input_files=files)
         nodes = self._pipeline.run(documents=documents, show_progress=False)
+        self._ensure_payload_indexes()
         self._persist_docstore()
         logger.info(
             "ingestion: точечно проиндексировано файлов=%d нод=%d", len(files), len(nodes)
@@ -349,6 +389,15 @@ class IngestionService:
             self._client.delete_collection(self._settings.rag_collection)
         self._docstore = SimpleDocumentStore()
         self._docstore_path.unlink(missing_ok=True)
+        # После delete_collection старый QdrantVectorStore застревает в
+        # _collection_initialized=True (коллекция существовала на момент
+        # __init__), поэтому add() пропустит _create_collection и упрётся в 404.
+        # Свежий инстанс увидит отсутствие коллекции и создаст её заново
+        # (dim/distance из первого эмбеддинга).
+        self._vector_store = QdrantVectorStore(
+            client=self._client,
+            collection_name=self._settings.rag_collection,
+        )
         self._pipeline = self._build_pipeline()
         logger.info(
             "ingestion: полная переиндексация коллекции %s", self._settings.rag_collection

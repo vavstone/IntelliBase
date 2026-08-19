@@ -18,20 +18,33 @@ FEEDBACK_CB_PREFIX = "fb"
 FEEDBACK_UP = "up"
 FEEDBACK_DOWN = "down"
 FEEDBACK_VALUES = (FEEDBACK_UP, FEEDBACK_DOWN)
-# Темы — примеры из диплома (поиск по корпоративной базе знаний)
-DEFAULT_TOPICS: list[tuple[str, str]] = [
-    ("Проектная документация", "proj_doc"),
-    ("Описания БД", "db_desc"),
-    ("Спецификации взаимодействия", "spec_interact"),
+# Категории знаний = ПС (подсистемы ФТС). Fallback, если backend недоступен;
+# канонический список — в Postgres (kb_categories, seed в миграции). Дублирование
+# осознанное: общего Python-модуля у backend и bot нет (как и для FEEDBACK_*).
+DEFAULT_CATEGORIES: list[tuple[str, str]] = [
+    ("Тарифы", "tarify"),
+    ("Малахит", "malahit"),
+    ("Постконтроль", "postkontrol"),
+    ("Таможня и право", "tamozhnya_pravo"),
+    ("Правоохрана", "pravoohrana"),
+    ("ЦРСВЭД", "crsved"),
+    ("Разное", "raznoe"),
 ]
+
+# Зарезервированный slug для «поиска без фильтра по категории» (вся база).
+# Не совпадает с реальными slug ПС (seed не содержит "all"); handler переводит
+# его в category=None, и backend ищет по всем ПС.
+ALL_CATEGORY = "all"
+ALL_CATEGORY_LABEL = "Все ПС"
 
 
 def topics_kb(
     topics: list[tuple[str, str]] | None = None,
 ) -> InlineKeyboardMarkup:
-    """Inline-кнопки выбора темы + Отмена."""
-    topics = topics or DEFAULT_TOPICS
+    """Inline-кнопки выбора категории (ПС) + «Все ПС» + Отмена."""
+    topics = topics or DEFAULT_CATEGORIES
     kb = InlineKeyboardBuilder()
+    kb.button(text=ALL_CATEGORY_LABEL, callback_data=f"topic:{ALL_CATEGORY}")
     for label, slug in topics:
         kb.button(text=label, callback_data=f"topic:{slug}")
     kb.button(text="Отмена", callback_data="topic:cancel")

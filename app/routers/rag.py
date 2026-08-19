@@ -21,6 +21,7 @@ router = APIRouter(prefix="/rag", tags=["rag"])
 
 class RAGQuery(BaseModel):
     question: str = Field(min_length=1, max_length=2000)
+    category: str | None = None  # slug ПС — сузить поиск (строгая фильтрация)
 
 
 class RAGSource(BaseModel):
@@ -53,7 +54,7 @@ async def rag_query(
 ) -> RAGAnswer:
     if rag is None:
         raise HTTPException(status_code=503, detail="RAG-индекс недоступен")
-    result = await rag.answer(req.question)
+    result = await rag.answer(req.question, category=req.category)
     # Лот в rag_queries для refusal_rate и пробелов в знаниях; сбой лота не ломает ответ.
     try:
         await AdminRepository(session_factory).log_rag_query(

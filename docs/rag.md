@@ -298,7 +298,15 @@ flowchart LR
 | POST | `/chats/{id}/messages/{mid}/feedback` | Оценка up/down |
 | POST | `/documents/upload` | Загрузка файла (202, фоновая индексация) |
 | POST | `/documents/reindex` | full / incremental / files |
+| GET | `/categories` | Каталог категорий (ПС): `[{slug, title}]` |
 | GET | `/chats/admin/stats` | refusal_rate, negative_feedback_rate, knowledge_gaps |
+
+**Фильтрация по категории (ПС).** `/rag/query` и `/chats/{id}/messages` принимают
+опциональное поле `category` (slug ПС). При заданном slug retrieval сужается
+строгой фильтрацией на уровне векторного хранилища (`build_filters(categories=[…])`,
+KEYWORD-индекс по полю `category` в Qdrant). Категория = одно ПС (таксономия в
+`kb_categories`, см. `docs/tech_debt/category-taxonomy-*.md`); slug — канонический
+ключ в папке `data/kb/`, метаданных Qdrant, фильтре и callback бота.
 
 ## Модели
 

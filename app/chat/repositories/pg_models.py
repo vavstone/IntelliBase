@@ -176,3 +176,20 @@ class RagQueryRow(Base):
     created_at: Mapped[datetime] = mapped_column(
         TimestampTZ, default=lambda: datetime.now(UTC)
     )
+
+
+class KbCategoryRow(Base):
+    """Категория знаний = одно ПС (подсистема ФТС).
+
+    `slug` — канонический ключ везде (папка data/kb, метаданные Qdrant, фильтр
+    RAG, callback бота); `title` — русское отображение для UI.
+    """
+
+    __tablename__ = "kb_categories"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    slug: Mapped[str] = mapped_column(unique=True)
+    title: Mapped[str]
+    created_at: Mapped[datetime] = mapped_column(
+        TimestampTZ, default=lambda: datetime.now(UTC)
+    )

@@ -38,10 +38,10 @@ class _FakeNode:
 class _FakeRag:
     def __init__(self, nodes: list) -> None:
         self._nodes = nodes
-        self.retrieve_calls: list[str] = []
+        self.retrieve_calls: list[tuple] = []
 
-    async def retrieve(self, q: str) -> list:
-        self.retrieve_calls.append(q)
+    async def retrieve(self, q: str, filters=None) -> list:
+        self.retrieve_calls.append((q, filters))
         return self._nodes
 
 
@@ -195,4 +195,25 @@ async def test_send_rag_streams_and_emits_sources(tmp_path) -> None:
     assert srcs and len(srcs[0]["sources"]) == 1
     assert srcs[0]["sources"][0]["file_name"] == "a.pdf"
     assert saved
-    assert rag.retrieve_calls == ["Что входит в состав ТРОИС?"]
+    assert rag.retrieve_calls == [("Что входит в состав ТРОИС?", None)]
+
+
+@pytest.mark.asyncio
+async def test_send_rag_passes_category_filter_to_retrieve(tmp_path) -> None:
+    """При заданной категории retrieval получает MetadataFilters по category."""
+    rag = _FakeRag([_FakeNode("контекст про Тарифы", score=0.9)])
+    llm = _FakeLLM(stream_chunks=[_Chunk("ответ")])
+    svc, _ = _service(tmp_path, rag=rag, llm=llm)
+    chat = await svc.get_or_create_chat(
+        owner_external_id="u3", interface="telegram", provider="ollama", model="qwen2.5:3b"
+    )
+    async for _ in svc.send_message(chat.id, "вопрос", category="tarify"):
+        pass
+
+    assert rag.retrieve_calls
+    _, filters = rag.retrieve_calls[0]
+    assert filters is not None
+    keys = {f.key for f in filters.filters}
+    assert keys == {"visibility", "category"}
+    cat = next(f for f in filters.filters if f.key == "category")
+    assert cat.value == ["tarify"]

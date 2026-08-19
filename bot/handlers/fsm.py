@@ -1,5 +1,9 @@
 """
-FSM-сценарий /ask: выбор темы → текст вопроса → отправка с topic-префиксом.
+FSM-сценарий /ask: выбор категории (ПС) → текст вопроса → отправка с category.
+
+Категории запрашиваются у backend (GET /categories) и строят inline-меню;
+выбранный slug уходит в RAG как отдельное поле `category` (строгая фильтрация
+поиска на уровне векторного хранилища), а не текстовым префиксом «Тема: …».
 """
 
 import asyncio
@@ -10,7 +14,12 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
-from bot.keyboards.inline import topics_kb
+from bot.keyboards.inline import (
+    ALL_CATEGORY,
+    ALL_CATEGORY_LABEL,
+    DEFAULT_CATEGORIES,
+    topics_kb,
+)
 from bot.services.backend_client import BackendClient
 from bot.services.error_handling import handle_backend_error
 from bot.services.streaming import stream_to_chat
@@ -21,10 +30,26 @@ router = Router(name="fsm")
 log = logging.getLogger(__name__)
 
 
+async def _fetch_categories(backend: BackendClient) -> list[dict]:
+    """Возвращает [{slug, title}] от backend; fallback — seed-категории."""
+    try:
+        cats = await backend.list_categories()
+        if cats:
+            return cats
+    except Exception as exc:
+        log.warning("не удалось получить категории из backend: %s", exc)
+    return [{"slug": s, "title": t} for t, s in DEFAULT_CATEGORIES]
+
+
 @router.message(Command("ask"))
-async def cmd_ask(message: Message, state: FSMContext) -> None:
+async def cmd_ask(message: Message, state: FSMContext, backend: BackendClient) -> None:
     await state.set_state(AskFlow.waiting_for_topic)
-    await message.answer("Выберите тему:", reply_markup=topics_kb())
+    categories = await _fetch_categories(backend)
+    await state.update_data(categories=categories)
+    await message.answer(
+        "Выберите тему:",
+        reply_markup=topics_kb([(c["title"], c["slug"]) for c in categories]),
+    )
 
 
 @router.callback_query(F.data.startswith("topic:"), AskFlow.waiting_for_topic)
@@ -36,12 +61,23 @@ async def on_topic_selected(cb: CallbackQuery, state: FSMContext) -> None:
             await cb.message.edit_text("Отменено.")
         await cb.answer()
         return
-    await state.update_data(topic=slug)
+    # «Все ПС» — поиск без фильтра по категории (category=None уходит в backend).
+    if slug == ALL_CATEGORY:
+        await state.update_data(category=None)
+        await state.set_state(AskFlow.waiting_for_question)
+        if cb.message is not None:
+            await cb.message.edit_text(
+                f"Тема: {ALL_CATEGORY_LABEL}\nЗадайте ваш вопрос текстом."
+            )
+        await cb.answer()
+        return
+    data = await state.get_data()
+    categories = data.get("categories") or []
+    title = next((c["title"] for c in categories if c["slug"] == slug), slug)
+    await state.update_data(category=slug)
     await state.set_state(AskFlow.waiting_for_question)
     if cb.message is not None:
-        await cb.message.edit_text(
-            f"Тема: {slug}\nЗадайте ваш вопрос текстом."
-        )
+        await cb.message.edit_text(f"Тема: {title}\nЗадайте ваш вопрос текстом.")
     await cb.answer()
 
 
@@ -52,8 +88,7 @@ async def on_question_received(
     state: FSMContext,
 ) -> None:
     data = await state.get_data()
-    topic = data.get("topic", "general")
-    prompt = f"Тема: {topic}. Вопрос: {message.text}"
+    category = data.get("category")
 
     chat_id = await backend.get_or_create_chat(
         owner_external_id=str(message.chat.id),
@@ -65,7 +100,10 @@ async def on_question_received(
     )
     try:
         events = backend.send_message(
-            chat_id, prompt, owner_external_id=str(message.chat.id)
+            chat_id,
+            message.text,
+            owner_external_id=str(message.chat.id),
+            category=category,
         )
         await stream_to_chat(message, events, chat_id=chat_id)
     except Exception as exc:

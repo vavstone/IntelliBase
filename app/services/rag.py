@@ -212,18 +212,38 @@ class RAGService:
         if self._settings.rag_rerank_enabled:
             self._postprocessors = [self._build_reranker()]
 
-    async def retrieve(self, question: str) -> list[NodeWithScore]:
-        """Retrieval: top-k из Qdrant + опциональный реранкер + обрезка до top_n."""
+    async def retrieve(
+        self, question: str, filters: MetadataFilters | None = None
+    ) -> list[NodeWithScore]:
+        """Retrieval: top-k из Qdrant (+ опц. фильтр по категории) + реранкер + top_n.
+
+        `VectorIndexRetriever` в llama-index 0.14 принимает `filters` только при
+        конструировании (в `aretrieve()` такого kwarg нет), поэтому под фильтр
+        строим отдельный ретривер поверх уже собранного индекса — это дешёвая
+        обёртка, сам индекс и вектор-стор не пересоздаются.
+        """
         if self._retriever is None:
             raise RuntimeError("RAG-индекс не инициализирован: сначала вызвать build().")
-        nodes = await self._retriever.aretrieve(question)
+        retriever = self._retriever
+        if filters is not None:
+            retriever = self._index.as_retriever(
+                similarity_top_k=self._settings.rag_top_k,
+                filters=filters,
+            )
+        nodes = await retriever.aretrieve(question)
         for postprocessor in self._postprocessors:
             nodes = postprocessor.postprocess_nodes(nodes, query_str=question)
         return nodes[: self._settings.rag_rerank_top_n]
 
-    async def answer(self, question: str) -> dict:
-        """Контракт: {answer, top_score, sources[id,file_name,page,score,snippet], confident}."""
-        nodes = await self.retrieve(question)
+    async def answer(self, question: str, category: str | None = None) -> dict:
+        """Контракт: {answer, top_score, sources[id,file_name,page,score,snippet], confident}.
+
+        `category` (slug ПС) сужает retrieval до документов этой ПС строгой
+        фильтрацией на уровне векторного хранилища (build_filters), а не
+        постфильтрацией после поиска.
+        """
+        filters = build_filters(categories=[category]) if category else None
+        nodes = await self.retrieve(question, filters=filters)
         top_score = max((sn.score or 0.0 for sn in nodes), default=0.0)
         if not nodes or top_score < self._settings.rag_score_threshold:
             # отказ БЕЗ вызова LLM — быстрее, дешевле, надёжнее галлюцинации

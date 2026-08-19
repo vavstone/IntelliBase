@@ -9,10 +9,12 @@ import logging
 from pathlib import Path
 from typing import Literal
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
-from app.deps.providers import IngestionServiceDep, SettingsDep
+from app.deps.providers import IngestionServiceDep, SessionFactoryDep, SettingsDep
+from app.kb.domain import normalize_slug
+from app.kb.repository import KbCategoryRepository
 
 logger = logging.getLogger(__name__)
 
@@ -34,25 +36,41 @@ class QueuedResponse(BaseModel):
     status_code=202,
     response_model=QueuedResponse,
     summary="Загрузить документ в базу знаний",
-    description="Сохраняет файл в корпус и запускает индексацию в фоне.",
+    description="Сохраняет файл в data/kb/<category>/ и запускает индексацию в фоне.",
 )
 async def upload_document(
     file: UploadFile,
     background: BackgroundTasks,
     ingestion: IngestionServiceDep,
     settings: SettingsDep,
+    session_factory: SessionFactoryDep,
+    category: str | None = Form(None),
 ) -> QueuedResponse:
     if ingestion is None:
         raise HTTPException(status_code=503, detail="индексатор недоступен")
     if not file.filename:
         raise HTTPException(status_code=422, detail="имя файла обязательно")
-    upload_dir = Path(settings.rag_data_dir)
-    upload_dir.mkdir(parents=True, exist_ok=True)
+
+    # Категория — slug ПС (латиница). Пусто/не задано -> raznoe.
+    slug = normalize_slug(category)
+
+    # Best-effort: регистрируем категорию в Postgres, если она новая. При
+    # недоступной БД загрузка всё равно проходит — категория возьмётся из пути.
+    if session_factory is not None:
+        try:
+            await KbCategoryRepository(session_factory).upsert_category(slug, slug)
+        except Exception:
+            logger.warning("не удалось зарегистрировать категорию %s", slug, exc_info=True)
+
+    # Файл кладём в категорийную подпапку, чтобы category_from_path вернул slug,
+    # а не имя файла (иначе документ не получит принадлежности к ПС).
+    target_dir = Path(settings.rag_data_dir) / slug
+    target_dir.mkdir(parents=True, exist_ok=True)
     # Path(...).name отбрасывает любые ../ — защита от обхода каталога.
-    target = upload_dir / Path(file.filename).name
+    target = target_dir / Path(file.filename).name
     target.write_bytes(await file.read())
     background.add_task(ingestion.run_for_file, target)
-    return QueuedResponse(detail=f"{target.name} принят, индексация в фоне")
+    return QueuedResponse(detail=f"{target.name} принят (категория {slug}), индексация в фоне")
 
 
 @router.post(

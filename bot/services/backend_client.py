@@ -3,7 +3,7 @@
 Бот не хранит истории/контекста — всё это есть на стороне backend.
 Здесь только операции: получить chat_id, отправить сообщение (SSE с
 опциональным media через multipart/form-data), очистить историю,
-оставить feedback, admin-команды (stats/handoff/alerts).
+оставить feedback, admin-команды (stats/handoff/alerts), список категорий.
 Заголовок `X-Owner-External-Id` передаётся в каждом POST/DELETE-вызове,
 где есть владелец, — backend использует его для rate-limit.
 """
@@ -64,13 +64,16 @@ class BackendClient:
         chat_id: UUID,
         content: str,
         owner_external_id: str,
-		media: bytes | None = None,
+        media: bytes | None = None,
         mime: str | None = None,
+        category: str | None = None,
     ) -> AsyncIterator[str]:
-        """POST /
-        chats/{id}/messages, парсит SSE-стрим, возвращает токены ответа по мере поступления.
+        """POST /chats/{id}/messages, парсит SSE-стрим, отдаёт токены по мере
+        поступления. `category` (slug ПС) сужает RAG-поиск (multipart-поле).
         """
         data = {"content": content}
+        if category:
+            data["category"] = category
         files = {"media": ("file.bin", media, mime)} if media else None
         headers = (
             {"X-Owner-External-Id": owner_external_id}
@@ -110,6 +113,13 @@ class BackendClient:
             f"/chats/{chat_id}/messages", headers=headers
         )
         r.raise_for_status()
+
+    # --- categories ------------------------------------------------------
+    async def list_categories(self) -> list[dict]:
+        """GET /categories → [{slug, title}] — меню тем для /ask."""
+        r = await self.http.get("/categories")
+        r.raise_for_status()
+        return r.json()
 
     # --- feedback --------------------------------------------------------
     async def post_feedback(

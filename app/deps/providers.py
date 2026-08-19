@@ -43,8 +43,13 @@ LLMServiceDep = Annotated[LLMService, Depends(get_llm_service)]
 def get_session_factory(request: Request) -> Any:
     """Возвращает async_sessionmaker, выставленный в lifespan, либо None,
     если Postgres недоступен. Роуты, которым PG обязателен, должны явно
-    проверять на None и отдавать 503/собственный fallback."""
-    return request.app.state.session_factory
+    проверять на None и отдавать 503/собственный fallback.
+
+    `getattr` с дефолтом None — чтобы зависимость не падала AttributeError'ом
+    в тестах без lifespan (app.state.session_factory там не выставлен), в
+    отличие от сестринских get_vector_store/get_rag_service.
+    """
+    return getattr(request.app.state, "session_factory", None)
 
 SessionFactoryDep = Annotated[Any, Depends(get_session_factory)]
 

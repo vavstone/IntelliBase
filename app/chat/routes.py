@@ -150,6 +150,7 @@ async def post_message(
     chat_service: ChatServiceDep,
     content: str = Form(""),
     media: UploadFile | None = File(None),
+    category: str | None = Form(None),
     owner_external_id: Annotated[
         str | None, Header(alias="X-Owner-External-Id")
     ] = None,
@@ -182,7 +183,7 @@ async def post_message(
     async def event_source():
         try:
             async for event in chat_service.send_message(
-                chat_id=chat_id, user_content=content, media=media,
+                chat_id=chat_id, user_content=content, media=media, category=category,
             ):
                 # service yield-ит уже структурированные dict-события:
                 # {"type":"token","delta":"..."} и

@@ -271,11 +271,16 @@ class ChatService:
         return messages
 
     async def _send_rag(
-        self, chat: Chat, user_content: str, llm, prompt_id
+        self, chat: Chat, user_content: str, llm, prompt_id, category: str | None = None
     ) -> AsyncIterator[dict]:
-        """RAG-путь: condense -> retrieve -> score-guard -> генерация с цитатами."""
+        """RAG-путь: condense -> retrieve -> score-guard -> генерация с цитатами.
+
+        `category` (slug ПС) сужает retrieval строгой фильтрацией по категории
+        (query-time фильтр; в chat_messages не сохраняется).
+        """
         from app.services.rag import (
             REFUSAL_TEXT,
+            build_filters,
             build_sources,
             numbered_context,
         )
@@ -291,7 +296,8 @@ class ChatService:
                 logger.warning("condense упал, использую сырой вопрос", exc_info=True)
 
         # 2. Retrieval + score-guard.
-        nodes = await self.rag_service.retrieve(search_query)
+        filters = build_filters(categories=[category]) if category else None
+        nodes = await self.rag_service.retrieve(search_query, filters=filters)
         top_score = max((n.score or 0.0 for n in nodes), default=0.0)
         sources = build_sources(nodes)
         if not nodes or top_score < self.rag_score_threshold:
@@ -397,6 +403,7 @@ class ChatService:
         chat_id: UUID,
         user_content: str,
         media: UploadFile | None = None,
+        category: str | None = None,
     ) -> AsyncIterator[dict]:
         """Полный цикл обработки сообщения пользователя.
 
@@ -447,7 +454,9 @@ class ChatService:
 
         # 4.1 Диалоговый RAG: retrieval + цитаты вместо чистого LLM-чата.
         if self._rag_active():
-            async for event in self._send_rag(chat, user_content, llm, prompt_id):
+            async for event in self._send_rag(
+                chat, user_content, llm, prompt_id, category
+            ):
                 yield event
             return
 

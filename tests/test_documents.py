@@ -57,8 +57,28 @@ async def test_upload_saves_file_and_queues_indexing(fake_ingestion, tmp_path) -
         )
     assert resp.status_code == 202
     assert resp.json()["status"] == "queued"
-    assert (tmp_path / "policy.pdf").read_bytes() == b"%PDF-1.4 fake"
-    assert fake_ingestion.calls == [("run_for_file", str(tmp_path / "policy.pdf"))]
+    # без category -> fallback "raznoe", файл в подпапке
+    assert (tmp_path / "raznoe" / "policy.pdf").read_bytes() == b"%PDF-1.4 fake"
+    assert fake_ingestion.calls == [
+        ("run_for_file", str(tmp_path / "raznoe" / "policy.pdf"))
+    ]
+    app.dependency_overrides.pop(get_settings, None)
+
+
+@pytest.mark.asyncio
+async def test_upload_with_category_saves_to_slug_folder(fake_ingestion, tmp_path) -> None:
+    app.dependency_overrides[get_settings] = lambda: _settings_with_dir(tmp_path)
+    async with await _client() as ac:
+        resp = await ac.post(
+            "/documents/upload",
+            data={"category": "malahit"},
+            files={"file": ("a.pdf", b"x", "application/pdf")},
+        )
+    assert resp.status_code == 202
+    assert (tmp_path / "malahit" / "a.pdf").exists()
+    assert fake_ingestion.calls == [
+        ("run_for_file", str(tmp_path / "malahit" / "a.pdf"))
+    ]
     app.dependency_overrides.pop(get_settings, None)
 
 
@@ -71,7 +91,8 @@ async def test_upload_strips_path_traversal(fake_ingestion, tmp_path) -> None:
             files={"file": ("../../evil.pdf", b"x", "application/pdf")},
         )
     assert resp.status_code == 202
-    assert (tmp_path / "evil.pdf").exists()
+    # slug нормализуется, обхода каталога не происходит
+    assert (tmp_path / "raznoe" / "evil.pdf").exists()
     assert not (tmp_path.parent / "evil.pdf").exists()
     app.dependency_overrides.pop(get_settings, None)
 

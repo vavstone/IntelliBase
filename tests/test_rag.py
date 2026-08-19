@@ -9,12 +9,16 @@
 """
 
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from llama_index.core.schema import NodeWithScore, TextNode
 
 from app.services.rag import (
+    RAGService,
     build_filters,
     build_sources,
     numbered_context,
@@ -84,8 +88,57 @@ def test_build_filters_visibility_and_categories() -> None:
     assert len(f.filters) == 2
 
 
+def test_build_filters_category_uses_in_operator() -> None:
+    from llama_index.core.vector_stores import FilterOperator
+
+    f = build_filters(visibility=None, categories=["tarify"])
+    assert f is not None
+    assert len(f.filters) == 1
+    flt = f.filters[0]
+    assert flt.key == "category"
+    assert flt.value == ["tarify"]
+    assert flt.operator == FilterOperator.IN
+
+
 def test_build_filters_none_when_empty() -> None:
     assert build_filters(visibility=None, categories=None) is None
+
+
+# ── RAGService.retrieve: проброс фильтра через as_retriever ──────────────
+# (регресс: в llama-index 0.14 aretrieve() не принимает filters — фильтр
+#  задаётся только при конструировании VectorIndexRetriever)
+
+def _make_rag_service() -> RAGService:
+    svc = object.__new__(RAGService)
+    svc._retriever = SimpleNamespace(aretrieve=AsyncMock(return_value=["base"]))
+    svc._index = SimpleNamespace()
+    svc._postprocessors = []
+    svc._settings = SimpleNamespace(rag_top_k=10, rag_rerank_top_n=5)
+    return svc
+
+
+@pytest.mark.asyncio
+async def test_retrieve_without_filters_uses_cached_retriever() -> None:
+    svc = _make_rag_service()
+    nodes = await svc.retrieve("вопрос")
+    assert nodes == ["base"]
+    svc._retriever.aretrieve.assert_awaited_once_with("вопрос")
+
+
+@pytest.mark.asyncio
+async def test_retrieve_with_filters_builds_filtered_retriever() -> None:
+    svc = _make_rag_service()
+    filtered = SimpleNamespace(aretrieve=AsyncMock(return_value=["filtered"]))
+    svc._index.as_retriever = Mock(return_value=filtered)
+    filters = object()  # плейсхолдер MetadataFilters
+
+    nodes = await svc.retrieve("вопрос", filters=filters)
+
+    assert nodes == ["filtered"]
+    svc._index.as_retriever.assert_called_once_with(
+        similarity_top_k=10, filters=filters
+    )
+    svc._retriever.aretrieve.assert_not_awaited()
 
 
 # ── bare-metal helpers (Б5.3) ────────────────────────────────────────────
@@ -115,8 +168,10 @@ def test_read_text_unsupported_extension(tmp_path: Path) -> None:
 class _FakeRAGService:
     def __init__(self, result: dict) -> None:
         self._result = result
+        self.answer_calls: list[tuple] = []
 
-    async def answer(self, question: str) -> dict:
+    async def answer(self, question: str, category: str | None = None) -> dict:
+        self.answer_calls.append((question, category))
         return self._result
 
 
@@ -179,3 +234,13 @@ def test_rag_query_422_on_empty_question() -> None:
     client = TestClient(_build_app(_FakeRAGService(_HAPPY)))
     resp = client.post("/rag/query", json={"question": ""})
     assert resp.status_code == 422
+
+
+def test_rag_query_forwards_category_to_answer() -> None:
+    fake = _FakeRAGService(_HAPPY)
+    client = TestClient(_build_app(fake))
+    resp = client.post(
+        "/rag/query", json={"question": "что в составе?", "category": "tarify"}
+    )
+    assert resp.status_code == 200
+    assert fake.answer_calls == [("что в составе?", "tarify")]
