@@ -49,7 +49,7 @@ class Settings(BaseSettings):
     llm: LLMSettings = Field(default_factory=LLMSettings)
     embedding: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
 
-    database_url: str = "postgresql+asyncpg://chat:pswd@localhost:5433/intellibase"
+    database_url: str = "postgresql+asyncpg://chat:pswd@localhost:5432/intellibase"
     chat_repository: Literal["json", "postgres"] = "json"
     chat_storage_dir: Path = Path("./var/chats")
     chat_context_window: int = 10
