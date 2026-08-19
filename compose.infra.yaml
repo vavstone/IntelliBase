@@ -1,0 +1,75 @@
+# Только инфраструктурные сервисы для локальной разработки.
+# Приложение запускается отдельно через uv / PyCharm (с возможностью дебага).
+#
+# Запуск:  docker compose -f compose.infra.yaml up -d
+# Остановка: docker compose -f compose.infra.yaml down
+
+services:
+  redis:
+    image: redis:7.4-alpine
+    container_name: llm-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  db:
+    image: postgres:16-alpine
+    container_name: llm-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: chat
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pswd}
+      POSTGRES_DB: intellibase
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chat -d intellibase"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  phoenix:
+    image: arizephoenix/phoenix:17.6.0
+    ports:
+      - "6006:6006"  # Web UI — http://localhost:6006
+      - "4317:4317"  # OTLP gRPC collector
+    environment:
+      PHOENIX_WORKING_DIR: /data
+    volumes:
+      - phoenix_data:/data
+
+  qdrant:
+    image: qdrant/qdrant:v1.18.0
+    container_name: llm-qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333"  # REST API + Dashboard
+      - "6334:6334"  # gRPC
+    # В production — раскомментировать и задать QDRANT_API_KEY в .env:
+    # environment:
+    #   QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY}
+    volumes:
+      - qdrant_storage:/qdrant/storage
+    healthcheck:
+      # В образе qdrant нет curl — проверяем доступность порта через bash /dev/tcp.
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/localhost/6333' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  redis_data:
+  phoenix_data:
+  postgres_data:
+  qdrant_storage:
