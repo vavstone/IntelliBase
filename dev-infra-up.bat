@@ -21,6 +21,7 @@ echo Infrastructure is running:
 echo   Redis    — localhost:6379
 echo   Postgres — localhost:5432
 echo   Phoenix  — localhost:6006  (UI)
+echo   Qdrant   — localhost:6333  (REST + Dashboard)
 echo.
 echo Now start the app:
 echo   ".venv\Scripts\python.exe" -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload

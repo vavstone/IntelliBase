@@ -3,16 +3,16 @@
 ## Архитектура запуска
 
 Python-код работает на хосте Windows (можно дебажить в PyCharm), а сторонние сервисы
-(Redis, PostgreSQL, Arize Phoenix) — в Docker-контейнерах.
+(Redis, PostgreSQL, Arize Phoenix, Qdrant) — в Docker-контейнерах.
 
 ```
-┌─────────────────────────────────────────────┐
-│  Docker (compose.infra.yaml)                 │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐     │
-│  │  Redis   │ │ Postgres │ │ Phoenix  │     │
-│  │  :6379   │ │  :5432   │ │  :6006   │     │
-│  └──────────┘ └──────────┘ └──────────┘     │
-└─────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────┐
+│  Docker (compose.infra.yaml)                          │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ │
+│  │  Redis   │ │ Postgres │ │ Phoenix  │ │  Qdrant  │ │
+│  │  :6379   │ │  :5432   │ │  :6006   │ │  :6333   │ │
+│  └──────────┘ └──────────┘ └──────────┘ └──────────┘ │
+└──────────────────────────────────────────────────────┘
          ↑ localhost          ↑ localhost
 
 ┌─────────────────────────────────────────────┐
@@ -38,7 +38,7 @@ Python-код работает на хосте Windows (можно дебажи�
 
 | Файл | Назначение |
 |-------|------------|
-| `compose.infra.yaml` | Docker Compose **только** с redis, db, phoenix (без app) |
+| `compose.infra.yaml` | Docker Compose **только** с redis, db, phoenix, qdrant (без app) |
 | `dev-infra-up.bat` | Запуск инфраструктуры (двойной клик) |
 | `dev-infra-down.bat` | Остановка инфраструктуры |
 | `dev.bat` | Полный запуск: инфра + uvicorn (двойной клик) |
@@ -56,7 +56,7 @@ Python-код работает на хосте Windows (можно дебажи�
    или укажи путь к `.venv/Scripts/python.exe`
 3. Если через uv — PyCharm сам подхватит зависимости из `pyproject.toml`
 
-### 2. Запуск инфраструктуры (Redis, PostgreSQL, Phoenix)
+### 2. Запуск инфраструктуры (Redis, PostgreSQL, Phoenix, Qdrant)
 
 **Самый простой способ — двойной клик по `dev-infra-up.bat`.**
 
@@ -72,7 +72,7 @@ docker compose -f compose.infra.yaml up -d
 docker compose -f compose.infra.yaml ps
 ```
 
-Ожидаемый вывод: три контейнера со статусом `Up` (healthy).
+Ожидаемый вывод: четыре контейнера со статусом `Up` (healthy).
 
 ### 3. Дебаг приложения в PyCharm
 
@@ -139,10 +139,12 @@ uv run alembic upgrade head
 ### Ollama (локальный LLM)
 
 Если используешь `LLM__DEFAULT_PROVIDER=ollama` (текущая настройка), Ollama
-должна быть установлена и запущена отдельно. Текущая модель в `.env` — `gwen2.5:3b`:
+должна быть установлена и запущена отдельно. Модели: `qwen2.5:3b` (чат) и
+`gemma3:4b` (RAG):
 
 ```bash
-ollama pull gwen2.5:3b
+ollama pull qwen2.5:3b
+ollama pull gemma3:4b
 ```
 
 ### Phoenix UI
@@ -166,11 +168,12 @@ docker compose up -d
 
 | Что делаешь | Чем |
 |---|---|
-| Запустить Redis + PG + Phoenix | Двойной клик по `dev-infra-up.bat` |
+| Запустить Redis + PG + Phoenix + Qdrant | Двойной клик по `dev-infra-up.bat` |
 | Дебажить код в PyCharm | Run Configuration → **IntelliBase Debug** → Debug |
 | Всё одной командой в терминале | `dev.bat` |
 | Остановить инфраструктуру | Двойной клик по `dev-infra-down.bat` |
 | Сбросить все данные Docker | `docker compose -f compose.infra.yaml down -v` |
 | Миграции БД | `uv run alembic upgrade head` |
 | Phoenix UI (трейсы) | http://localhost:6006 |
+| Qdrant Dashboard | http://localhost:6333/dashboard |
 | Swagger API | http://localhost:8000/docs |
