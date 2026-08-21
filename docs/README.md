@@ -24,6 +24,7 @@
 | [embeddings.md](embeddings.md) | Выбор embed-модели (E5, локально) | отчёт Б5.1 |
 | [vector_store.md](vector_store.md) | Qdrant: конфигурация, cosine vs dot | отчёт Б5.2 |
 | [chunking_experiment.md](chunking_experiment.md) | Сравнение стратегий чанкинга | отчёт Б5.4 |
+| [rag_evaluation.md](rag_evaluation.md) | Оценка качества RAG: RAGAS, A/B, Phoenix-трейсинг | отчёт Б5.6 |
 
 ## Данные и техдолг
 

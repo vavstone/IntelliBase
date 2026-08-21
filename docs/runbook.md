@@ -88,6 +88,46 @@ curl -s -m 120 -X POST http://localhost:8000/rag/query \
 Ожидается JSON с `answer`, `sources` (нумерованные цитаты), `confident`.
 Off-topic вопрос → `confident=false` + честный отказ без вызова LLM.
 
+## Оценка качества RAG (RAGAS, Б5.6)
+
+Зависимости ставятся опциональными группами: `uv sync --extra eval --extra tracing`.
+Судья — DeepSeek (`EVAL_JUDGE_MODEL=deepseek-v4-flash`, без VPN), эмбеддинги судьи —
+локальная E5. Production-RAG в `/rag/query` при этом не меняется.
+
+```bash
+# Генерация golden dataset (сырой CSV, дальше ручная вычитка)
+uv run --extra eval python scripts/generate_testset.py --size 40
+
+# Прогон метрик (пишет tests/eval/results/{timestamp}_{label}.csv + .json)
+uv run --extra eval python scripts/run_eval.py --label baseline
+
+# A/B-варианты (override коллекции / top-K / re-ranker)
+uv run --extra eval python scripts/run_eval.py --collection rag_block_05_chunk1024 --label chunk_1024
+uv run --extra eval python scripts/run_eval.py --top-k 5 --label top_k_5
+
+# Самопроверка критериев Б5.6
+uv run --extra eval --extra tracing python dev_tasks/verify_5_6.py
+```
+
+### A/B по чанкингу: отдельная коллекция
+
+Смена chunk_size — это переиндексация (офлайн-контур). Нужна **отдельная коллекция и
+отдельный docstore**, иначе UPSERTS пропустит всё по хешу (chunk_size в хеш не входит):
+
+```bash
+RAG_COLLECTION=rag_block_05_chunk1024 \
+RAG_CHUNK_SIZE=1024 \
+RAG_DOCSTORE_PATH=var/rag_docstore_chunk1024.json \
+uv run python scripts/ingest.py data/kb
+```
+
+### Трейсинг LlamaIndex в Phoenix
+
+```bash
+PHOENIX_ENABLED=true uv run --extra tracing python scripts/trace_demo.py
+# → http://localhost:6006 → Traces (retriever scores, LLM prompt/usage)
+```
+
 ## Тесты
 
 ```bash

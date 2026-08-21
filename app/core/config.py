@@ -14,6 +14,11 @@ class LLMSettings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434/v1"
     openai_base_url: str = "https://api.openai.com/v1"
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    # DeepSeek — OpenAI-совместимый эндпоинт, работает без VPN (альтернатива OpenAI).
+    # Сейчас используется как судья RAGAS (см. EVAL_JUDGE_*); подключение к /chat
+    # и RAG-генерации — в планах.
+    deepseek_api_key: SecretStr = SecretStr("sk-test-placeholder")
+    deepseek_base_url: str = "https://api.deepseek.com"
     default_provider: Literal["openai", "ollama", "openrouter"] = "ollama"
     default_model: str = "qwen2.5:3b"
     request_timeout: float = 30.0
@@ -83,13 +88,14 @@ class Settings(BaseSettings):
     # Дочерний docstore на диске — состояние инкрементальной индексации (UPSERTS).
     rag_docstore_path: Path = Path("var/rag_docstore.json")
     # LLM для генерации RAG-ответа (Ollama через OpenAI-совместимый эндпоинт).
-    rag_llm_model: str = "gemma3:4b"
-    # Таймаут генерации RAG-ответа (сек). gemma3:4b на CPU медленная: прогретый
-    # ответ ~45–50 с, холодный старт (загрузка модели после простоя) добавляет
-    # ещё ~30 с. Дефолт llama_index (60 с) не покрывает холодный старт.
-    rag_llm_timeout: float = 120.0
-    # Контекстное окно LLM (токенов), заявляемое в LLMMetadata. Совпадает с
-    # gemma3:4b (8192); при смене RAG_LLM_MODEL — поменять (напр. qwen2.5:3b = 32768).
+    # Финальный выбор по итогам Б5.6: qwen3:8b (faithfulness 0.775 против 0.666 у
+    # gemma3:4b). 8B на CPU медленнее — см. rag_llm_timeout.
+    rag_llm_model: str = "qwen3:8b"
+    # Таймаут генерации RAG-ответа (сек). qwen3:8b на CPU медленная: ~2–4 мин на
+    # ответ, редкие вопросы до 5+ мин. 600 с покрывает с запасом.
+    rag_llm_timeout: float = 600.0
+    # Контекстное окно LLM (токенов), заявляемое в LLMMetadata. qwen3:8b поддерживает
+    # больше, но для RAG-контекста (top-5 чанков) 8192 достаточно.
     rag_llm_context_window: int = 8192
     # Ширина retrieval (similarity_top_k): достаём широко, реранкер/обрезка
     # оставляет rag_rerank_top_n лучших. Из ДЗ 5.4: top-K=10 даёт полный recall.
@@ -116,6 +122,21 @@ class Settings(BaseSettings):
     # (один LLM-вызов) при наличии истории — чинит поиск на коротких follow-up
     # вроде «а для них?». Переписанный запрос идёт только в retrieval.
     rag_condense_enabled: bool = True
+
+    # Phoenix-трейсинг (LlamaIndex) -------------------------------------------
+    # Инструментирование LlamaIndex в Phoenix — опциональный runtime-путь, группа
+    # зависимостей `tracing` (uv sync --extra tracing). По умолчанию выключено;
+    # при включении нужен поднятый сервис phoenix (compose.yaml / :6006).
+    phoenix_enabled: bool = False
+    phoenix_collector_endpoint: str = "http://localhost:6006/v1/traces"
+
+    # Оценка качества (RAGAS) -------------------------------------------------
+    # Судья и эмбеддинги для офлайн-оценки (scripts/run_eval.py,
+    # generate_testset.py) — группа зависимостей `eval`. Судья отделён от
+    # production-LLM в /rag/query (rag_llm_model): роли разные, путать нельзя.
+    anthropic_api_key: SecretStr | None = None
+    eval_judge_provider: Literal["anthropic", "openai", "deepseek"] = "deepseek"
+    eval_judge_model: str = "deepseek-v4-flash"
 
 
 @lru_cache

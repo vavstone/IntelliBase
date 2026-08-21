@@ -40,7 +40,7 @@ settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    setup_tracing()
+    setup_tracing(settings)
 
     # HTTP-клиент для локальной Ollama — БЕЗ прокси (внешний прокси
     # не достучится до localhost). Таймауты и limits — общие.

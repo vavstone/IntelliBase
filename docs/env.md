@@ -26,6 +26,8 @@
 | `LLM__OLLAMA_BASE_URL` | `http://localhost:11434/v1` | эндпоинт Ollama |
 | `LLM__OPENAI_BASE_URL` | `https://api.openai.com/v1` | эндпоинт OpenAI |
 | `LLM__OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` | эндпоинт OpenRouter |
+| `LLM__DEEPSEEK_API_KEY` | `sk-test-placeholder` | ключ DeepSeek (OpenAI-совместимый, без VPN) |
+| `LLM__DEEPSEEK_BASE_URL` | `https://api.deepseek.com` | эндпоинт DeepSeek |
 | `LLM__REQUEST_TIMEOUT` | `30.0` | таймаут LLM-вызовов (сек) |
 | `LLM__MAX_RETRIES` | `3` | число ретраев |
 
@@ -80,6 +82,23 @@
 | `RAG_RERANK_TOP_N` | `5` | top-N в промпт |
 | `RAG_ENABLE_CHAT` | `true` | диалоговый RAG в `/chats` |
 | `RAG_CONDENSE_ENABLED` | `true` | condense follow-up |
+
+## Оценка качества RAGAS (`EVAL_JUDGE_*`, группа `eval`)
+
+| Переменная | Дефолт | Назначение |
+|-----------|--------|------------|
+| `EVAL_JUDGE_PROVIDER` | `deepseek` | провайдер судьи метрик: `deepseek` / `openai` / `anthropic` |
+| `EVAL_JUDGE_MODEL` | `deepseek-v4-flash` | модель судьи (RAGAS + TestsetGenerator) |
+| `ANTHROPIC_API_KEY` | — | ключ, если `EVAL_JUDGE_PROVIDER=anthropic` |
+
+Эмбеддинги для `AnswerRelevancy` — локальная `EMBEDDING_MODEL` (E5), не облако.
+
+## Phoenix-трейсинг (группа `tracing`)
+
+| Переменная | Дефолт | Назначение |
+|-----------|--------|------------|
+| `PHOENIX_ENABLED` | `false` | включить инструментирование LlamaIndex |
+| `PHOENIX_COLLECTOR_ENDPOINT` | `http://localhost:6006/v1/traces` | OTLP-эндпоинт Phoenix |
 
 ## Бот (`bot/config.py`, префикс `BOT_`)
 

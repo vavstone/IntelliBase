@@ -46,12 +46,16 @@ REFUSAL_TEXT = "В базе знаний я не нашёл ответа на э
 CITATION_QA_TEMPLATE = (
     "Ниже — пронумерованные источники из базы знаний.\n"
     "---------------------\n{context_str}\n---------------------\n"
-    "Ответь на вопрос, опираясь ТОЛЬКО на источники. Каждый факт сопровождай "
-    "номером источника в квадратных скобках, например [1] или [2]. Если ответа "
-    "в источниках нет — честно напиши, что не нашёл его в базе знаний, и ничего "
-    "не выдумывай. Отвечай по-русски, коротко и по делу.\n"
+    "Ответь на вопрос, опираясь ТОЛЬКО на эти источники.\n\n"
+    "ПРАВИЛО ЦИТИРОВАНИЯ (обязательно): после каждого факта, взятого из "
+    "источника, сразу ставь его номер в квадратных скобках. Пример: "
+    "«Возврат возможен в течение 14 дней [1]». Каждый факт в ответе ДОЛЖЕН "
+    "заканчиваться ссылкой [1], [2] и т.д. — ответ без номеров источников "
+    "недопустим.\n\n"
+    "Если ответа в источниках нет — честно напиши, что не нашёл его в базе "
+    "знаний, и ничего не выдумывай. Отвечай по-русски, коротко и по делу.\n"
     "Вопрос: {query_str}\n"
-    "Ответ: "
+    "Ответ (с номерами источников в квадратных скобках): "
 )
 
 
@@ -244,6 +248,21 @@ class RAGService:
         """
         filters = build_filters(categories=[category]) if category else None
         nodes = await self.retrieve(question, filters=filters)
+        return await self._synthesize(question, nodes)
+
+    async def evaluate_inputs(self, question: str) -> dict:
+        """answer() + полные retrieved_contexts (тексты чанков) — вход для RAGAS.
+
+        Роут /rag/query отдаёт усечённые snippet'ы, а метрикам нужен полный текст
+        найденных чанков; этот метод собирает оба представления за один ретрив.
+        """
+        nodes = await self.retrieve(question)
+        result = await self._synthesize(question, nodes)
+        result["retrieved_contexts"] = [sn.get_content() for sn in nodes]
+        return result
+
+    async def _synthesize(self, question: str, nodes: list[NodeWithScore]) -> dict:
+        """score-guard + генерация ответа с цитатами по найденным нодам."""
         top_score = max((sn.score or 0.0 for sn in nodes), default=0.0)
         if not nodes or top_score < self._settings.rag_score_threshold:
             # отказ БЕЗ вызова LLM — быстрее, дешевле, надёжнее галлюцинации

@@ -209,3 +209,8 @@ __marimo__/
 data/orig_docs
 data/rag-block-03
 data/kb
+
+tests/eval/results
+tests/eval/golden_dataset_raw.csv
+tests/eval/golden_dataset.json
+docs/screenshots/5_6
