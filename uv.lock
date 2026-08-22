@@ -2013,7 +2013,6 @@ requires-dist = [
     { name = "llama-index-embeddings-huggingface", specifier = ">=0.7.0" },
     { name = "llama-index-readers-file", specifier = ">=0.6.0" },
     { name = "llama-index-vector-stores-qdrant", specifier = ">=0.10.3" },
-    { name = "openai", specifier = ">=1.40" },
     { name = "openai", specifier = ">=2.0,<3" },
     { name = "openinference-instrumentation-llama-index", marker = "extra == 'tracing'", specifier = ">=3,<4" },
     { name = "openinference-instrumentation-openai", specifier = "==0.1.51" },

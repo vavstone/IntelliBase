@@ -88,6 +88,7 @@ class Settings(BaseSettings):
     # Дочерний docstore на диске — состояние инкрементальной индексации (UPSERTS).
     rag_docstore_path: Path = Path("var/rag_docstore.json")
     # LLM для генерации RAG-ответа (Ollama через OpenAI-совместимый эндпоинт).
+    rag_llm_provider: Literal["ollama", "deepseek", "openai"] = "ollama"
     # Финальный выбор по итогам Б5.6: qwen3:8b (faithfulness 0.775 против 0.666 у
     # gemma3:4b). 8B на CPU медленнее — см. rag_llm_timeout.
     rag_llm_model: str = "qwen3:8b"

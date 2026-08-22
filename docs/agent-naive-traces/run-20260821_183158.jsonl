@@ -1,0 +1,1 @@
+{"step": 0, "tool_name": null, "tool_args": null, "tool_result": "У меня нет доступа к функции `get_user_balance` — в моём наборе инструментов есть только:\n\n- **search_knowledge_base** — поиск по внутренней базе знаний компании\n- **get_current_time** — текущие дата ", "llm_input_tokens": 668, "llm_output_tokens": 375, "duration_ms": 4486.5}

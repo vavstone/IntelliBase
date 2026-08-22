@@ -12,7 +12,6 @@ dependencies = [
     "pydantic>=2.6",
     "pydantic-settings>=2.2",
     "uvicorn[standard]>=0.29",
-    "openai>=1.40",
     "redis>=5.0",
     "tenacity>=8.2",
     "arize-phoenix==17.3.0",

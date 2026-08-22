@@ -154,14 +154,25 @@ class RAGService:
             text_instruction=TEXT_INSTRUCTION,
             normalize=True,
         )
-        Settings.llm = OllamaLLM(
-            model=settings.rag_llm_model,
-            temperature=0.0,
-            api_key="ollama",
-            api_base=settings.llm.ollama_base_url,
-            timeout=settings.rag_llm_timeout,
-            context_window=settings.rag_llm_context_window,
-        )
+
+        if settings.rag_llm_provider == "deepseek":
+            Settings.llm = OllamaLLM(
+                model=settings.rag_llm_model,
+                temperature=0.0,
+                api_key=settings.llm.deepseek_api_key.get_secret_value(),
+                api_base=settings.llm.deepseek_base_url,
+                timeout=settings.rag_llm_timeout,
+                context_window=settings.rag_llm_context_window,
+            )
+        else:
+            Settings.llm = OllamaLLM(
+                model=settings.rag_llm_model,
+                temperature=0.0,
+                api_key="ollama",
+                api_base=settings.llm.ollama_base_url,
+                timeout=settings.rag_llm_timeout,
+                context_window=settings.rag_llm_context_window,
+            )
 
         self._client = QdrantClient(url=settings.qdrant_url, api_key=qdrant_key)
         self._aclient = AsyncQdrantClient(url=settings.qdrant_url, api_key=qdrant_key)

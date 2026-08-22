@@ -1,0 +1,2 @@
+{"step": 0, "tool_name": "send_telegram_message", "tool_args": "{\"chat_id\": \"99999\", \"text\": \"К сожалению, в базе знаний отсутствует информация по вашему вопросу.\"}", "tool_result": "Сообщение отправлено в 99999", "llm_input_tokens": 688, "llm_output_tokens": 934, "duration_ms": 8213.9}
+{"step": 1, "tool_name": null, "tool_args": null, "tool_result": "Готово. Сообщение отправлено клиенту в чат 99999: «К сожалению, в базе знаний отсутствует информация по вашему вопросу.»", "llm_input_tokens": 1643, "llm_output_tokens": 40, "duration_ms": 1434.1}
