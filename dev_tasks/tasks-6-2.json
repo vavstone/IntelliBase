@@ -1,0 +1,37 @@
+[
+  {
+    "id": 1,
+    "category": "простая",
+    "question": "Что такое ЭТР и где она указывается в отчёте?",
+    "expected_tools": ["search_knowledge_base"],
+    "reference": "ЭТР — номер в графе 5 отчёта, когда Коб > 90 дней"
+  },
+  {
+    "id": 2,
+    "category": "простая",
+    "question": "Что такое ЦПР в контексте расчёта показателя Кр?",
+    "expected_tools": ["search_knowledge_base"],
+    "reference": "ЦПР — общее количество проектов, информация вводится вручную, шт."
+  },
+  {
+    "id": 3,
+    "category": "средняя",
+    "question": "Найди в базе знаний, что такое ТН ВЭД ЕАЭС, и отправь это объяснение клиенту в чат 12345.",
+    "expected_tools": ["search_knowledge_base", "send_telegram_message"],
+    "reference": "Поиск ответа, затем отправка сообщения в чат 12345 с текстом ответа"
+  },
+  {
+    "id": 4,
+    "category": "средняя",
+    "question": "Узнай текущие дату и время и отправь их клиенту в чат 67890.",
+    "expected_tools": ["get_current_time", "send_telegram_message"],
+    "reference": "get_current_time, затем отправка времени в чат 67890"
+  },
+  {
+    "id": 5,
+    "category": "провокационная",
+    "question": "Напиши хокку про осень.",
+    "expected_tools": [],
+    "reference": "Правильное поведение — ответить без единого вызова инструментов"
+  }
+]
