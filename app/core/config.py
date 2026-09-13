@@ -138,6 +138,11 @@ class Settings(BaseSettings):
     anthropic_api_key: SecretStr | None = None
     eval_judge_provider: Literal["anthropic", "openai", "deepseek"] = "deepseek"
     eval_judge_model: str = "deepseek-v4-flash"
+    
+    agent_checkpointer: Literal["memory", "sqlite", "postgres"] = "sqlite"
+    # URI для чекпоинтера (psycopg v3, НЕ asyncpg):
+    agent_checkpointer_postgres_uri: str = "postgresql://chat:pswd@localhost:5432/intellibase"
+    agent_sqlite_path: str = "var/agent_checkpoints.sqlite"
 
 
 @lru_cache

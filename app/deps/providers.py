@@ -67,8 +67,14 @@ def get_rag_service(request: Request):
     Qdrant/индекс был недоступен на старте: роут отдаёт 503."""
     return getattr(request.app.state, "rag_service", None)
 
+def get_agent_graph(request: Request) -> Any:
+    """Скомпилированный ReAct-граф агента, собранный в lifespan. None — если
+    сборка не удалась (нет ключа/модели): /agent/chat отдаёт 503."""
+    return request.app.state.agent_graph
+
 
 RAGServiceDep = Annotated[Any, Depends(get_rag_service)]
+AgentGraphDep = Annotated[Any, Depends(get_agent_graph)]
 
 
 def get_ingestion_service(request: Request):

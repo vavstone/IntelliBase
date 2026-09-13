@@ -100,6 +100,14 @@
 | `PHOENIX_ENABLED` | `false` | включить инструментирование LlamaIndex |
 | `PHOENIX_COLLECTOR_ENDPOINT` | `http://localhost:6006/v1/traces` | OTLP-эндпоинт Phoenix |
 
+## Агентный слой (`AGENT_*`, LangGraph)
+
+| Переменная | Дефолт | Назначение |
+|-----------|--------|------------|
+| `AGENT_CHECKPOINTER` | `sqlite` | хранилище чек-пойнтов: `memory` / `sqlite` / `postgres` |
+| `AGENT_CHECKPOINTER_POSTGRES_URI` | `postgresql://chat:pswd@localhost:5432/intellibase` | URI для `AsyncPostgresSaver` (psycopg v3, НЕ asyncpg) |
+| `AGENT_SQLITE_PATH` | `var/agent_checkpoints.sqlite` | файл SQLite-чекпоинтера при `AGENT_CHECKPOINTER=sqlite` |
+
 ## Бот (`bot/config.py`, префикс `BOT_`)
 
 | Переменная | Дефолт | Назначение |

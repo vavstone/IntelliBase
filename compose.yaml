@@ -34,6 +34,8 @@ services:
       QDRANT_URL: http://qdrant:6333
       # Ollama крутится на хосте — из контейнера достижим через host.docker.internal.
       LLM__OLLAMA_BASE_URL: http://host.docker.internal:11434/v1
+      AGENT_CHECKPOINTER: postgres
+      AGENT_CHECKPOINTER_POSTGRES_URI: postgresql://chat:${POSTGRES_PASSWORD:-pswd}@db:5432/intellibase
     volumes:
       # Корпус + загруженные документы.
       - ./data:/app/data

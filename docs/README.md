@@ -26,6 +26,13 @@
 | [chunking_experiment.md](chunking_experiment.md) | Сравнение стратегий чанкинга | отчёт Б5.4 |
 | [rag_evaluation.md](rag_evaluation.md) | Оценка качества RAG: RAGAS, A/B, Phoenix-трейсинг | отчёт Б5.6 |
 
+## Агенты (LangGraph)
+
+| Документ | Что описывает | Статус |
+|----------|---------------|--------|
+| [agent-graph-report.md](agent-graph-report.md) | ReAct-агент на LangGraph (StateGraph + create_agent), бенчмарк | отчёт Б6.3 |
+| [agent-persistent-report.md](agent-persistent-report.md) | Персистентный агент: checkpointer, HIL, SSE, time-travel | отчёт Б6.4 |
+
 ## Данные и техдолг
 
 | Документ | Что описывает | Статус |

@@ -3,7 +3,7 @@ import time
 import uuid
 import httpx
 import structlog
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, AsyncExitStack
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -24,8 +24,7 @@ from app.core.exceptions import (
     LLMTimeoutError,
     LLMUnsupportedCountryError
 )
-from app.routers import categories, chat, documents, health, models, rag
-
+from app.routers import categories, chat, documents, health, models, rag, agent
 from app.observability.tracing import setup_tracing
 from app.observability.logger import setup_logging
 
@@ -183,7 +182,51 @@ async def lifespan(app: FastAPI):
             e,
         )
 
+    # Агентный слой (LangGraph): персистентный ReAct-граф с HIL.
+    # Чекпоинтер держит соединение всё время работы приложения — граф
+    # поднимается через AsyncExitStack и закрывается на shutdown.
+    app.state.agent_graph = None
+    agent_stack = AsyncExitStack()
+    try:
+        from langchain_openai import ChatOpenAI
+
+        from app.tools.graph_tools import TOOLS
+        from app.services.agent_persistent import agent_lifespan
+
+        agent_model = ChatOpenAI(
+            model="deepseek-v4-flash",
+            base_url=settings.llm.deepseek_base_url,
+            api_key=settings.llm.deepseek_api_key.get_secret_value(),
+            temperature=0,
+        )
+
+        async def _send_telegram_impl(draft: dict) -> None:
+            print(f"[TELEGRAM → {draft.get('chat_id')}] {draft.get('text')}")
+
+        agent_tools = TOOLS
+
+        app.state.agent_graph = await agent_stack.enter_async_context(
+            agent_lifespan(
+                settings.agent_checkpointer,
+                agent_model,
+                agent_tools,
+                _send_telegram_impl,
+                sqlite_path=settings.agent_sqlite_path,
+                postgres_url=settings.agent_checkpointer_postgres_uri,
+            )
+        )
+
+
+        logger.info(
+            "Персистентный агент собран (backend=%s)", settings.agent_checkpointer
+        )
+    except Exception as e:
+        app.state.agent_graph = None
+        logger.warning("Агентный граф не собран (%s) — /agent/* вернут 503", e)
+
     yield
+
+    await agent_stack.aclose()
 
     # Останавливаем фоновые таски
     for _task in (_broadcast_task, _monitor_task):
@@ -368,3 +411,4 @@ app.include_router(models.router)
 app.include_router(health.router)
 app.include_router(rag.router)
 app.include_router(documents.router)
+app.include_router(agent.router)
