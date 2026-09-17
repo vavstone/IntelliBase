@@ -128,3 +128,16 @@
 | `APP_NAME` | `llm-service-example` | имя приложения |
 | `CORS_ORIGINS` | `["*"]` | список origin |
 | `DEBUG` | `false` | отладка |
+
+## Тихий режим HuggingFace (`app/core/hf_env.py`)
+
+Ставятся кодом (`os.environ.setdefault`) на старте любого процесса, который импортирует
+`app.*`, и до того, как `huggingface_hub` подтянет langchain/transformers. В `.env` их
+писать не нужно — они уже выставлены; переопределять есть смысл только для отладки
+загрузки моделей.
+
+| Переменная | Значение по умолчанию | Назначение |
+|-----------|--------|------------|
+| `HF_HUB_VERBOSITY` | `error` | убирает предупреждение «You are sending unauthenticated requests to the HF Hub» |
+| `HF_HUB_DISABLE_PROGRESS_BARS` | `1` | убирает прогресс-бар загрузки |
+| `TRANSFORMERS_VERBOSITY` | `error` | убирает прогресс-бар «Loading weights» при загрузке embedding-модели |

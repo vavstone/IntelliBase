@@ -32,6 +32,8 @@
 |----------|---------------|--------|
 | [agent-graph-report.md](agent-graph-report.md) | ReAct-агент на LangGraph (StateGraph + create_agent), бенчмарк | отчёт Б6.3 |
 | [agent-persistent-report.md](agent-persistent-report.md) | Персистентный агент: checkpointer, HIL, SSE, time-travel | отчёт Б6.4 |
+| [multi-agent-report.md](multi-agent-report.md) | Мультиагент (supervisor + researcher + writer) против single-agent: замеры, решение | отчёт Б6.5 |
+| [architecture-multi-agent.md](architecture-multi-agent.md) | Схема supervisor-графа из `draw_mermaid()` | отчёт Б6.5 |
 
 ## Данные и техдолг
 

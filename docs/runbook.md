@@ -128,6 +128,27 @@ PHOENIX_ENABLED=true uv run --extra tracing python scripts/trace_demo.py
 # → http://localhost:6006 → Traces (retriever scores, LLM prompt/usage)
 ```
 
+## Эксперимент Б6.5: мультиагент против single-agent
+
+Нужны поднятый Qdrant (коллекция `rag_block_05`) и доступ к DeepSeek. Скрипты пишут в один
+файл `experiments/results.json` (merge по `(impl, qid)`), поэтому порядок запуска любой.
+
+```bash
+rm experiments/results.json                          # чистовой прогон: убрать прошлые данные
+
+uv run python -m experiments.multi_agent_langgraph   # 5 вопросов мультиагентом + схема графа
+uv run python -m experiments.single_agent_baseline   # те же 5 вопросов одним агентом
+uv run python -m experiments.judge                   # LLM-судья: quality_score в results.json
+
+uv run python dev_tasks/verify_6_5.py                # самопроверка ДЗ (15 критериев)
+```
+
+Признаки корректного прогона мультиагента: в консоли на каждый вопрос четыре узла
+(`supervisor → researcher → supervisor → writer → supervisor`), `handoff_count = 2`,
+`llm_calls ≈ 6`, а в ответе есть ссылки `[1]`, `[2]`. Итоговые документы —
+[docs/multi-agent-report.md](multi-agent-report.md) и
+[docs/architecture-multi-agent.md](architecture-multi-agent.md).
+
 ## Тесты
 
 ```bash

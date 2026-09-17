@@ -66,6 +66,25 @@
 | `compare_metrics.py` | Сравнение cosine vs dot в Qdrant |
 | `run_chunking_experiment.py` | Прогон эксперимента по чанкингу |
 
+### `experiments/` — прототипы Б6.5 (мультиагент vs single-agent)
+
+Изолированная папка: supervisor-граф собран как учебный эксперимент и **в `app/` не
+переезжает** — по итогам замеров принято решение оставить single-agent с tools.
+
+| Модуль | Ответственность |
+| --- | --- |
+| `multi_agent_langgraph.py` | Supervisor + researcher + writer (`langgraph-supervisor`), 5 вопросов, замеры, `draw_mermaid()` → `docs/architecture-multi-agent.md` |
+| `single_agent_baseline.py` | Baseline: один `create_agent` с тем же tool и теми же вопросами |
+| `measure_utils.py` | `run_one` (streaming, замеры, извлечение ответа) + `save_results` (merge по `(impl, qid)`) |
+| `metrics_callback.py` | Callback-счётчик LLM-вызовов и токенов по всем агентам графа |
+| `kb_tool.py` | Единственная реализация `search_knowledge_base` для обоих скриптов (иначе сравнение нечестное) |
+| `questions.py` | 5 вопросов: 3 corpus / 1 multi_step / 1 out_of_scope |
+| `judge.py` | LLM-судья: 3 критерия (grounded / citations / honesty), оценка вслепую |
+| `results.json` | Сырые замеры 5 × 2 + оценки судьи |
+
+Итоги: [docs/multi-agent-report.md](docs/multi-agent-report.md) — таблица single vs multi,
+сопоставление с Anthropic-ориентиром, решение по agent-слою диплома.
+
 ## Поток данных RAG
 
 Два контура, разделённых по времени жизни запроса.
