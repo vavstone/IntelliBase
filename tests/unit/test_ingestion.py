@@ -1,7 +1,11 @@
 """Юнит-тесты чистых функций офлайн-контура индексации (без Qdrant/embedding)."""
 
+from pathlib import Path
+from types import SimpleNamespace
+
 from llama_index.core.schema import Document
 
+from app.services import ingestion
 from app.services.ingestion import (
     EXCLUDED_EMBED_KEYS,
     _doc_id,
@@ -85,13 +89,13 @@ def test_excluded_keys_cover_noise_fields() -> None:
     assert "page" in EXCLUDED_EMBED_KEYS
     assert "source" in EXCLUDED_EMBED_KEYS
     assert "version" in EXCLUDED_EMBED_KEYS
+    assert "pdf_type" in EXCLUDED_EMBED_KEYS
+    assert "extraction_tool" in EXCLUDED_EMBED_KEYS
     assert "category" not in EXCLUDED_EMBED_KEYS
 
 
 def test_doc_id_is_deterministic_and_unique() -> None:
     """Стабильный doc_id — залог идемпотентности UPSERTS."""
-    from pathlib import Path
-
     p = Path("data/kb/Тарифы/заявка.pdf")
     # одинаковый путь+страница → одинаковый id (между запусками)
     assert _doc_id(p, 3) == _doc_id(p, 3)
@@ -100,3 +104,70 @@ def test_doc_id_is_deterministic_and_unique() -> None:
     # без страницы (DOCX/MD/HTML) — стабилен и не равен страничному
     assert _doc_id(p, None) == _doc_id(p, None)
     assert _doc_id(p, None) != _doc_id(p, 1)
+
+
+# --- PDF-движок (pdf-inspector) -----------------------------------------------
+
+
+class _FakePage:
+    """Заглушка `PageMarkdown` из pdf-inspector."""
+
+    def __init__(self, page: int, markdown: str, needs_ocr: bool = False) -> None:
+        self.page = page
+        self.markdown = markdown
+        self.needs_ocr = needs_ocr
+        self.ocr_reason = None
+
+
+class _FakeInspector:
+    """Заглушка модуля pdf_inspector — только используемые функции."""
+
+    def __init__(self, pages: list[_FakePage], pdf_type: str = "text_based") -> None:
+        self._pages = pages
+        self._pdf_type = pdf_type
+
+    def detect_pdf(self, path: str) -> SimpleNamespace:
+        return SimpleNamespace(
+            pdf_type=self._pdf_type, confidence=1.0, page_count=len(self._pages)
+        )
+
+    def extract_pages_markdown(self, path: str) -> SimpleNamespace:
+        return SimpleNamespace(pages=self._pages)
+
+
+def test_pages_from_inspector_builds_documents_per_page(monkeypatch) -> None:
+    """Страницы → Document'ы с 1-indexed `page` и стабильным doc_id."""
+    path = Path("data/kb/malahit/3354.pdf")
+    fake = _FakeInspector([_FakePage(0, "# Титул"), _FakePage(1, "Основной текст")])
+    monkeypatch.setattr(ingestion, "_load_pdf_inspector", lambda: fake)
+
+    docs = ingestion.pages_from_inspector(path, {"category": "malahit"})
+
+    assert docs is not None
+    assert [d.metadata["page"] for d in docs] == [1, 2]
+    assert docs[0].metadata["category"] == "malahit"
+    assert docs[0].metadata["pdf_type"] == "text_based"
+    assert docs[0].metadata["extraction_tool"] == "pdf-inspector"
+    # doc_id тот же, что у legacy-движка: откат флагом не ломает UPSERTS
+    assert docs[0].doc_id == _doc_id(path, 1)
+    assert docs[1].text.startswith("Основной текст")
+
+
+def test_pages_from_inspector_skips_pages_without_text_layer(monkeypatch) -> None:
+    """Страницы под OCR в индекс не идут — пустые ноды шумят в векторном поиске."""
+    fake = _FakeInspector(
+        [_FakePage(0, "текст"), _FakePage(1, "", needs_ocr=True), _FakePage(2, "   ")],
+        pdf_type="mixed",
+    )
+    monkeypatch.setattr(ingestion, "_load_pdf_inspector", lambda: fake)
+
+    docs = ingestion.pages_from_inspector(Path("scan.pdf"), {})
+
+    assert [d.metadata["page"] for d in docs] == [1]
+
+
+def test_pages_from_inspector_returns_none_without_package(monkeypatch) -> None:
+    """Пакета нет — вызывающий откатывается на PyMuPDFReader."""
+    monkeypatch.setattr(ingestion, "_load_pdf_inspector", lambda: None)
+
+    assert ingestion.pages_from_inspector(Path("scan.pdf"), {}) is None

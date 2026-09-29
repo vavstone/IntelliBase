@@ -103,6 +103,13 @@ class Settings(BaseSettings):
     rag_top_k: int = 10
     rag_chunk_size: int = 512
     rag_chunk_overlap: int = 64
+    # Движок извлечения текста из PDF в офлайн-контуре (парсинг корпуса).
+    # 'inspector' — pdf-inspector (Rust): классификация text_based/scanned
+    # постранично + markdown-извлечение (в замерах ×35 быстрее pymupdf4llm и
+    # аккуратнее с таблицами); 'pymupdf' — PyMuPDFReader (legacy-откат).
+    # Сканы не читает ни один из них: страницы без текстового слоя пропускаются
+    # (нужен внешний OCR).
+    rag_pdf_parser: Literal["inspector", "pymupdf"] = "inspector"
     # Если top-1 score ниже порога — ответа в корпусе нет, отдаём честный отказ
     # БЕЗ вызова LLM (score-guard). Двухслойная защита: код + промпт. Порог
     # калибруется под embed-модель: для E5 косинус сжат (релевантное ~0.84,

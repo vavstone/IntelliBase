@@ -37,7 +37,7 @@
 | `app/kb/` | Каталог категорий знаний (ПС): домен + репозиторий `kb_categories` |
 | `app/services/rag.py` | Онлайн-контур RAG: retrieve → score-guard → генерация с цитатами |
 | `app/services/rag_baremetal.py` | RAG без фреймворка (сравнение с LlamaIndex) |
-| `app/services/ingestion.py` | Офлайн-контур: парсинг → чанкинг → эмбеддинг → UPSERTS в Qdrant |
+| `app/services/ingestion.py` | Офлайн-контур: парсинг (pdf-inspector для PDF) → чанкинг → эмбеддинг → UPSERTS в Qdrant |
 | `app/services/vector_store.py` | Async-обёртка над Qdrant (коллекция `documents`) |
 | `app/services/reranker.py` | Cross-encoder реранкер (опционально) |
 | `app/services/chunking.py` | Стратегии чанкинга fixed/recursive/semantic (эксперимент) |
@@ -91,7 +91,7 @@
 
 ### Офлайн-контур (индексация) — `app/services/ingestion.py`
 
-1. Чтение корпуса `data/kb/<category>/…` (PDF/DOCX/HTML/MD) — ридеры PyMuPDF (PDF постранично), Docx, HTML, Markdown.
+1. Чтение корпуса `data/kb/<category>/…` (PDF/DOCX/HTML/MD) — ридеры pdf-inspector (PDF: постраничная классификация + markdown; legacy-откат PyMuPDF — `RAG_PDF_PARSER=pymupdf`), Docx, HTML, Markdown. Страницы без текстового слоя (сканы) пропускаются.
 2. Обогащение метаданными из пути и файла: `category` (папка-ПС), `version`, `visibility`, `last_modified` (стабильный, для идемпотентности).
 3. Чанкинг `SentenceSplitter` (chunk 512 / overlap 64).
 4. Эмбеддинг `intfloat/multilingual-e5-large` (dim 1024, локально, E5-префиксы `query:` / `passage:`).

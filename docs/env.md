@@ -76,6 +76,7 @@
 | `RAG_TOP_K` | `10` | ширина retrieval (similarity_top_k) |
 | `RAG_CHUNK_SIZE` | `512` | размер чанка |
 | `RAG_CHUNK_OVERLAP` | `64` | перекрытие чанков |
+| `RAG_PDF_PARSER` | `inspector` | движок извлечения PDF: `inspector` (pdf-inspector, Rust) или `pymupdf` (legacy-откат) |
 | `RAG_SCORE_THRESHOLD` | `0.80` | порог score-guard |
 | `RAG_RERANK_ENABLED` | `false` | включить реранкер |
 | `RAG_RERANK_MODEL` | `BAAI/bge-reranker-v2-m3` | модель реранкера |

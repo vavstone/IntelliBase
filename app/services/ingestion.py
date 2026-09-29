@@ -7,9 +7,14 @@
 читает `RAGService` (онлайн-контур).
 
 Парсинг маршрутизируется по расширению на специализированные ридеры:
-`PyMuPDFReader` (PDF, по странице — даёт `page` для цитат), `DocxReader`,
+`pdf-inspector` (PDF, по странице — даёт `page` для цитат), `DocxReader`,
 `HTMLTagReader`, `MarkdownReader`. Метаданные из путей (`category`, `version`)
 и файла (`last_modified`) обогащают ноды для фильтрации и цитирования.
+
+PDF читает `pdf-inspector` (Rust): классифицирует страницы
+(`text_based`/`scanned`) и отдаёт markdown постранично. Страницы без текстового
+слоя пропускаются — их распознаёт внешний OCR (см. `docs/rag.md`); движок
+переключается настройкой `RAG_PDF_PARSER` (значение `pymupdf` — legacy-откат).
 
 Чистые функции (`clean`, `category_from_path`, `file_metadata`, ...) не зависят
 от внешних сервисов и покрыты юнит-тестами; класс `IngestionService` ходит в
@@ -72,6 +77,8 @@ EXCLUDED_EMBED_KEYS = [
     "doc_type",
     "version",
     "visibility",
+    "pdf_type",
+    "extraction_tool",
 ]
 
 # Якоря корпуса: категория = папка сразу после одного из них.
@@ -185,6 +192,78 @@ def build_embed_model(model_name: str) -> HuggingFaceEmbedding:
     )
 
 
+def _load_pdf_inspector():
+    """Ленивый импорт pdf-inspector; None — пакет недоступен (откат на PyMuPDF).
+
+    Импорт ленивый по тому же принципу, что и у LlamaIndex: сам модуль должен
+    импортироваться в окружениях без парсера PDF.
+    """
+    try:
+        import pdf_inspector
+    except ImportError:
+        logger.warning("ingestion: pdf-inspector недоступен, PDF читает PyMuPDFReader")
+        return None
+    return pdf_inspector
+
+
+def pages_from_inspector(path: Path, base: dict[str, str]) -> list[Document] | None:
+    """Страницы PDF → Document'ы через pdf-inspector; None — пакета нет.
+
+    `extract_pages_markdown` отдаёт markdown постранично — сохраняем привычную
+    схему «Document на страницу» с `page` в метаданных (нужна для цитат).
+    Страницы с `needs_ocr` и пустым markdown в индекс не отдаём: текстового слоя
+    у них нет, а пустые ноды только зашумляли бы векторный поиск (сканы
+    распознаёт внешний OCR, см. `docs/rag.md`).
+    """
+    inspector = _load_pdf_inspector()
+    if inspector is None:
+        return None
+
+    detected = inspector.detect_pdf(str(path))
+    pages = inspector.extract_pages_markdown(str(path)).pages
+
+    documents: list[Document] = []
+    skipped = 0
+    for page in pages:
+        if page.needs_ocr or not page.markdown.strip():
+            skipped += 1
+            continue
+        number = page.page + 1  # pdf-inspector нумерует страницы с нуля
+        doc = Document(
+            text=page.markdown,
+            metadata={
+                **base,
+                "page": number,
+                "pdf_type": detected.pdf_type,
+                "extraction_tool": "pdf-inspector",
+            },
+        )
+        doc.doc_id = _doc_id(path, number)  # стабильный id для UPSERTS
+        documents.append(doc)
+
+    if skipped:
+        logger.info(
+            "ingestion: страниц без текстового слоя пропущено=%d file=%s pdf_type=%s",
+            skipped,
+            path.name,
+            detected.pdf_type,
+        )
+    return documents
+
+
+def pages_from_pymupdf(path: Path, base: dict[str, str]) -> list[Document]:
+    """Страницы PDF → Document'ы через PyMuPDFReader (legacy-движок, откат)."""
+    # PyMuPDFReader отдаёт один Document на страницу; в metadata['source']
+    # у него лежит номер страницы (строка). Сохраняем его в 'page'.
+    docs = PyMuPDFReader().load(file_path=str(path))
+    for i, doc in enumerate(docs, start=1):
+        raw = str(doc.metadata.get("source", ""))
+        page = int(raw) if raw.isdigit() else i
+        doc.metadata = {**base, "page": page, "extraction_tool": "pymupdf"}
+        doc.doc_id = _doc_id(path, page)  # стабильный id для UPSERTS
+    return docs
+
+
 class IngestionService:
     """Индексатор корпуса: один экземпляр на процесс, переиспользует пайплайн.
 
@@ -284,15 +363,11 @@ class IngestionService:
         base = file_metadata(str(path))
 
         if suffix == ".pdf":
-            # PyMuPDFReader отдаёт один Document на страницу; в metadata['source']
-            # у него лежит номер страницы (строка). Сохраняем его в 'page'.
-            docs = PyMuPDFReader().load(file_path=str(path))
-            for i, doc in enumerate(docs, start=1):
-                raw = str(doc.metadata.get("source", ""))
-                page = int(raw) if raw.isdigit() else i
-                doc.metadata = {**base, "page": page}
-                doc.doc_id = _doc_id(path, page)  # стабильный id для UPSERTS
-            return docs
+            if self._settings.rag_pdf_parser == "inspector":
+                documents = pages_from_inspector(path, base)
+                if documents is not None:
+                    return documents
+            return pages_from_pymupdf(path, base)
 
         if suffix == ".docx":
             docs = DocxReader().load_data(file=path)

@@ -42,5 +42,5 @@ uv run pytest tests/ -v
 ## Примечания
 
 - Общие фикстуры — `tests/conftest.py`; модульные — свои `conftest.py`.
-- `tests/unit/test_ingestion.py` покрывает чистые функции (`clean`, `category_from_path`, …) без внешних сервисов.
+- `tests/unit/test_ingestion.py` покрывает чистые функции (`clean`, `category_from_path`, …) без внешних сервисов, включая PDF-движок: `pages_from_inspector` (заглушка модуля `pdf_inspector` через `monkeypatch`) — постраничные Document'ы, пропуск страниц под OCR, откат на PyMuPDF при отсутствии пакета.
 - Полный список тестов и маркеры — через `uv run pytest tests/ --collect-only -q`.
