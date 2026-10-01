@@ -3,6 +3,42 @@
 Копипаст-команды для запуска, проверки и переиндексации. Все — из корня проекта.
 Порты и сервисы — см. [../ARCHITECTURE.md](../ARCHITECTURE.md).
 
+## Быстрый старт (Makefile)
+
+Основные операции собраны в `Makefile` — одна команда вместо цепочки шагов:
+
+```bash
+make up         # поднять стек и дождаться готовности (docker compose up -d --build --wait)
+make smoke      # проверить: контейнеры, /health, /ready, коллекция Qdrant, Phoenix
+make smoke-rag  # то же + сквозной вопрос к RAG (нужны LLM и наполненный корпус)
+make down       # остановить стек (данные в томах сохраняются)
+make help       # список всех целей
+```
+
+Вспомогательные: `make logs`, `make ps`, `make restart`, `make shell`,
+`make test`, `make test-all`, `make ingest`, `make reindex`, `make eval`,
+`make clean` (удаляет тома — осторожно).
+
+`make smoke` запускается изнутри контейнера `app`, если стек поднят (там гарантированно
+есть python), иначе — локально через `uv`. Код возврата 1 — есть провал (используется
+в проверках «готов к защите»).
+
+Первый `make up` долгий: приложение скачивает embedding-модель E5 (~2 ГБ) и
+индексирует корпус; в `compose.yaml` для этого задан `start_period: 600s`.
+
+Если модель уже скачана на хосте — укажите её кэш в `.env`, и она смонтируется
+в контейнер (старт вместо скачивания):
+
+```bash
+HF_CACHE_DIR=/home/user/.cache/huggingface          # Linux/macOS
+HF_CACHE_DIR=C:/Users/<user>/.cache/huggingface     # Windows
+```
+
+Каталог весов для LlamaIndex задаётся отдельно (`EMBEDDING_MODEL_CACHE_DIR`,
+в compose это `/home/appuser/.cache/huggingface/hub`): без него LlamaIndex ищет
+модель в собственном кэше внутри контейнера, теряет её при пересоздании и
+`/rag/query` отвечает 503. Проверка — `make smoke-rag`.
+
 ## Запуск и остановка
 
 ### Docker-инфраструктура (Redis, Postgres, Qdrant, Phoenix)

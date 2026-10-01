@@ -34,6 +34,13 @@ class EmbeddingSettings(BaseSettings):
     model: str = "intfloat/multilingual-e5-large"
     batch_size: int = 32  # Для ST на CPU — 16–32
     cache_dir: str = "./var/embedding_cache"
+    # Каталог, откуда LlamaIndex грузит веса модели (в формате HF-кэша:
+    # <dir>/models--<org>--<name>/snapshots/...). По умолчанию — собственный кэш
+    # LlamaIndex (get_cache_dir(): ~/.cache/llama_index или AppData), который в
+    # контейнере живёт в слое образа и теряется при пересоздании — тогда модель
+    # пробует скачаться с huggingface.co. В Docker указываем смонтированный
+    # HF-кэш (EMBEDDING_MODEL_CACHE_DIR=/home/appuser/.cache/huggingface/hub).
+    model_cache_dir: str | None = None
     max_retries: int = 5
 
 

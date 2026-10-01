@@ -182,10 +182,17 @@ def enrich(documents: list[Document]) -> list[Document]:
     return documents
 
 
-def build_embed_model(model_name: str) -> HuggingFaceEmbedding:
-    """Embed-модель та же, что и в онлайн-контуре (E5, префиксы, нормализация)."""
+def build_embed_model(
+    model_name: str, cache_folder: str | None = None
+) -> HuggingFaceEmbedding:
+    """Embed-модель та же, что и в онлайн-контуре (E5, префиксы, нормализация).
+
+    `cache_folder` — каталог с весами в формате HF-кэша; None — кэш LlamaIndex
+    по умолчанию (в Docker задаётся смонтированный HF-кэш, см. config.py).
+    """
     return HuggingFaceEmbedding(
         model_name=model_name,
+        cache_folder=cache_folder,
         query_instruction=QUERY_INSTRUCTION,
         text_instruction=TEXT_INSTRUCTION,
         normalize=True,
@@ -286,7 +293,9 @@ class IngestionService:
             client=self._client,
             collection_name=settings.rag_collection,
         )
-        self._embed_model = build_embed_model(settings.embedding.model)
+        self._embed_model = build_embed_model(
+            settings.embedding.model, settings.embedding.model_cache_dir
+        )
         self._docstore = self._load_docstore()
         self._pipeline = self._build_pipeline()
 

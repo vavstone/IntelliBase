@@ -32,6 +32,11 @@ services:
       # Если вы хотите, чтобы приложение сразу использовало postgres-репозиторий:
       CHAT_REPOSITORY: postgres
       QDRANT_URL: http://qdrant:6333
+      # Веса эмбеддингов: LlamaIndex по умолчанию берёт их из своего кэша внутри
+      # контейнера (~/.cache/llama_index), который теряется при пересоздании —
+      # тогда модель пытается скачаться с huggingface.co и RAG не поднимается.
+      # Указываем смонтированный HF-кэш (том или HF_CACHE_DIR с хоста).
+      EMBEDDING_MODEL_CACHE_DIR: /home/appuser/.cache/huggingface/hub
       # Ollama крутится на хосте — из контейнера достижим через host.docker.internal.
       LLM__OLLAMA_BASE_URL: http://host.docker.internal:11434/v1
       AGENT_CHECKPOINTER: postgres
@@ -44,7 +49,9 @@ services:
       # Qdrant в Docker, и первичная индексация будет пропущена (RAG → 503).
       - rag_data:/app/var
       # Кэш HuggingFace: E5 и re-ranker скачиваются один раз и переиспользуются.
-      - hf_cache:/home/appuser/.cache/huggingface
+      # Если HF_CACHE_DIR задан (кэш на хосте), монтируется он: модель E5 уже
+      # скачана — старт без ожидания 2.2 ГБ. Иначе — обычный том (и скачивание).
+      - ${HF_CACHE_DIR:-hf_cache}:/home/appuser/.cache/huggingface
     depends_on:
       db:
         condition: service_healthy

@@ -18,6 +18,9 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 COPY app/ ./app/
 COPY bot/ ./bot/
+# Скрипты (ingest, smoke, eval) нужны внутри образа: их запускают через
+# `docker compose exec app python scripts/...` — пути к корпусу те же (/app/data).
+COPY scripts/ ./scripts/
 # Миграции и их конфиг нужны в образе: entrypoint гоняет `alembic upgrade head`.
 COPY alembic.ini ./
 COPY migrations/ ./migrations/

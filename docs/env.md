@@ -35,11 +35,12 @@
 
 | Переменная | Дефолт | Назначение |
 |-----------|--------|------------|
-| `EMBEDDING__PROVIDER` | `sentence_transformers` | `sentence_transformers` (локально) / `openai` |
-| `EMBEDDING__MODEL` | `intfloat/multilingual-e5-large` | модель (dim 1024) |
-| `EMBEDDING__BATCH_SIZE` | `32` | размер батча (16–32 на CPU) |
-| `EMBEDDING__CACHE_DIR` | `./var/embedding_cache` | diskcache между рестартами |
-| `EMBEDDING__MAX_RETRIES` | `5` | ретраи |
+| `EMBEDDING_PROVIDER` | `sentence_transformers` | `sentence_transformers` (локально) / `openai` |
+| `EMBEDDING_MODEL` | `intfloat/multilingual-e5-large` | модель (dim 1024) |
+| `EMBEDDING_BATCH_SIZE` | `32` | размер батча (16–32 на CPU) |
+| `EMBEDDING_CACHE_DIR` | `./var/embedding_cache` | diskcache между рестартами |
+| `EMBEDDING_MODEL_CACHE_DIR` | — | каталог весов в формате HF-кэша; в Docker — смонтированный кэш (иначе модель ищется в кэше LlamaIndex внутри контейнера и RAG не поднимается) |
+| `EMBEDDING_MAX_RETRIES` | `5` | ретраи |
 
 ## Хранилище чата и кэш
 

@@ -150,6 +150,9 @@ class RAGService:
 
         Settings.embed_model = HuggingFaceEmbedding(
             model_name=settings.embedding.model,
+            # None — кэш LlamaIndex по умолчанию; в Docker задан смонтированный
+            # HF-кэш, иначе модель не находится и запрос уходит в сеть.
+            cache_folder=settings.embedding.model_cache_dir,
             query_instruction=QUERY_INSTRUCTION,
             text_instruction=TEXT_INSTRUCTION,
             normalize=True,
