@@ -83,16 +83,67 @@ curl -s -m 5 http://localhost:6333/collections
 
 ## Индексация корпуса (офлайн-контур)
 
+По умолчанию индексируется демонстрационный корпус `data/demo_kb` (18
+синтетических документов, лежит в репозитории) в коллекцию `rag_demo`.
+Рабочий корпус подключается через `RAG_DATA_DIR`/`RAG_COLLECTION` в `.env`.
+
 ```bash
 # Инкрементально (UPSERTS пропустит неизменённое)
-uv run python scripts/ingest.py data/kb
+uv run python scripts/ingest.py data/demo_kb
 
 # Полная переиндексация (вычистить и заново)
-uv run python scripts/ingest.py data/kb --full
+uv run python scripts/ingest.py data/demo_kb --full
 
 # Точечно — только перечисленные файлы
-uv run python scripts/ingest.py --files data/kb/tarify/a.pdf data/kb/malahit/b.docx
+uv run python scripts/ingest.py --files data/demo_kb/tarify/a.pdf data/demo_kb/malahit/b.docx
+
+# Рабочий корпус (не хранится в git)
+uv run python scripts/ingest.py data/kb          # RAG_COLLECTION=rag_block_05 в .env
 ```
+
+## Демонстрационный корпус
+
+Синтетические документы (7 категорий-ПС, PDF + DOCX) генерируются скриптом —
+их безопасно держать в публичном репозитории и удобно использовать для демо
+и для наполнения коллекции на чистом клоне:
+
+```bash
+# Пересобрать корпус (PDF собираются шрифтом DejaVu Sans)
+uv run python scripts/generate_demo_corpus.py
+
+# Только проверка состава, без записи файлов
+uv run python scripts/generate_demo_corpus.py --check
+
+# Очистить каталог и собрать заново
+uv run python scripts/generate_demo_corpus.py --clean
+```
+
+Содержимое документов описано декларативно в `scripts/demo_corpus/content_*.py`.
+
+## Внешние LLM: прокси и TLS
+
+`PROXY_URL` применяется только к OpenAI/OpenRouter. DeepSeek доступен напрямую —
+под него создаётся отдельный HTTP-клиент **без** прокси: через прокси запрос
+падает на проверке сертификата (`SSL: CERTIFICATE_VERIFY_FAILED ... self-signed
+certificate in certificate chain`), потому что прокси подменяет TLS-цепочку.
+
+Проверка связи из контейнера:
+
+```bash
+docker compose exec app python -c "
+import os, httpx
+key = os.environ['LLM__DEEPSEEK_API_KEY']
+r = httpx.post('https://api.deepseek.com/chat/completions',
+    headers={'Authorization': f'Bearer {key}'},
+    json={'model': 'deepseek-v4-flash',
+          'messages': [{'role': 'user', 'content': 'ping'}], 'max_tokens': 2},
+    timeout=20)
+print(r.status_code)"
+```
+
+Ожидаемый ответ — `200`. Разовый сетевой сбой на стороне провайдера виден в логах
+app как `APIConnectionError` после нескольких ретраев — повторный запрос обычно
+проходит.
 
 Альтернатива через API:
 
@@ -108,10 +159,12 @@ curl -s -X POST http://localhost:8000/documents/reindex \
 UPSERTS уже не отражает реальность):
 
 ```bash
-curl -s -X DELETE http://localhost:6333/collections/rag_block_05
+curl -s -X DELETE http://localhost:6333/collections/rag_demo
 rm -f var/rag_docstore.json
-uv run python scripts/ingest.py data/kb --full
+uv run python scripts/ingest.py data/demo_kb --full
 ```
+
+Для рабочего корпуса — то же с `rag_block_05` и `data/kb`.
 
 ## Smoke-тест RAG
 

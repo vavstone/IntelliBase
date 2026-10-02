@@ -11,7 +11,14 @@ from app.chat.repositories.pg_repo import (
 from app.chat.repository import ChatRepository
 from app.chat.service import ChatService
 from app.core.config import get_settings
-from app.deps.providers import SessionFactoryDep, LLMOllamaDep, LLMOpenaiDep, LLMOpenrouterDep, RAGServiceDep
+from app.deps.providers import (
+    SessionFactoryDep,
+    LLMDeepseekDep,
+    LLMOllamaDep,
+    LLMOpenaiDep,
+    LLMOpenrouterDep,
+    RAGServiceDep,
+)
 from app.moderation.service import ModerationService
 
 
@@ -46,6 +53,7 @@ def get_chat_service(
     llm_ollama: LLMOllamaDep,
     llm_openai: LLMOpenaiDep,
     llm_openrouter: LLMOpenrouterDep,
+    llm_deepseek: LLMDeepseekDep,
 	session_factory: SessionFactoryDep,
     rag_service: RAGServiceDep,
 ) -> ChatService:
@@ -74,6 +82,7 @@ def get_chat_service(
         llm_ollama=llm_ollama,
         llm_openai=llm_openai,
         llm_openrouter=llm_openrouter,
+        llm_deepseek=llm_deepseek,
         context_window=settings.chat_context_window,
         default_provider=settings.llm.default_provider,
         default_model=settings.llm.default_model,

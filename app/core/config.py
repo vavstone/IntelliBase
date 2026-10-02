@@ -15,11 +15,11 @@ class LLMSettings(BaseSettings):
     openai_base_url: str = "https://api.openai.com/v1"
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     # DeepSeek — OpenAI-совместимый эндпоинт, работает без VPN (альтернатива OpenAI).
-    # Сейчас используется как судья RAGAS (см. EVAL_JUDGE_*); подключение к /chat
-    # и RAG-генерации — в планах.
+    # Используется как провайдер чата/RAG (быстрее локальной Ollama на CPU),
+    # судья RAGAS (см. EVAL_JUDGE_*) и модель агента (см. main.py).
     deepseek_api_key: SecretStr = SecretStr("sk-test-placeholder")
     deepseek_base_url: str = "https://api.deepseek.com"
-    default_provider: Literal["openai", "ollama", "openrouter"] = "ollama"
+    default_provider: Literal["openai", "ollama", "openrouter", "deepseek"] = "ollama"
     default_model: str = "qwen2.5:3b"
     request_timeout: float = 30.0
     max_retries: int = 3
@@ -87,10 +87,14 @@ class Settings(BaseSettings):
     embedding_dim: int = 1024   # intfloat/multilingual-e5-large
 
     # RAG (LlamaIndex) ------------------------------------------------------
-    # Корпус для индексации (data/kb/<category>/...) и отдельные коллекции под
-    # LlamaIndex (IngestionPipeline + запросы) и bare-metal сравнение.
-    rag_data_dir: Path = Path("data/kb")
-    rag_collection: str = "rag_block_05"
+    # Корпус для индексации (data/<корпус>/<category>/...) и отдельные коллекции
+    # под LlamaIndex (IngestionPipeline + запросы) и bare-metal сравнение.
+    # По умолчанию — демонстрационный корпус из репозитория (синтетические
+    # документы, см. scripts/generate_demo_corpus.py): на чистом клоне база
+    # знаний наполняется без доступа к реальным документам. Для рабочего корпуса
+    # задайте RAG_DATA_DIR=data/kb и отдельную коллекцию (RAG_COLLECTION).
+    rag_data_dir: Path = Path("data/demo_kb")
+    rag_collection: str = "rag_demo"
     rag_collection_bare: str = "rag_block_03_bare"
     # Дочерний docstore на диске — состояние инкрементальной индексации (UPSERTS).
     rag_docstore_path: Path = Path("var/rag_docstore.json")

@@ -21,7 +21,7 @@
 
 | Переменная | Дефолт | Назначение |
 |-----------|--------|------------|
-| `LLM__DEFAULT_PROVIDER` | `ollama` | `ollama` / `openai` / `openrouter` |
+| `LLM__DEFAULT_PROVIDER` | `ollama` | `ollama` / `openai` / `openrouter` / `deepseek` |
 | `LLM__DEFAULT_MODEL` | `qwen2.5:3b` | модель чата по умолчанию |
 | `LLM__OLLAMA_BASE_URL` | `http://localhost:11434/v1` | эндпоинт Ollama |
 | `LLM__OPENAI_BASE_URL` | `https://api.openai.com/v1` | эндпоинт OpenAI |
@@ -52,7 +52,7 @@
 | `CHAT_CONTEXT_WINDOW` | `10` | sliding window (сообщений) |
 | `REDIS_URL` | `redis://localhost:6379/0` | кэш LLM |
 | `CACHE_TTL_SECONDS` | `3600` | TTL кэша (сек) |
-| `PROXY_URL` | — | прокси для внешних API |
+| `PROXY_URL` | — | прокси для внешних API (OpenAI/OpenRouter); DeepSeek ходит напрямую |
 
 ## Qdrant
 
@@ -67,8 +67,8 @@
 
 | Переменная | Дефолт | Назначение |
 |-----------|--------|------------|
-| `RAG_DATA_DIR` | `data/kb` | корпус для индексации |
-| `RAG_COLLECTION` | `rag_block_05` | рабочая коллекция LlamaIndex |
+| `RAG_DATA_DIR` | `data/demo_kb` | корпус для индексации (демо-набор в git; рабочий корпус — `data/kb`) |
+| `RAG_COLLECTION` | `rag_demo` | рабочая коллекция LlamaIndex (под демо-корпус; под рабочий — `rag_block_05`) |
 | `RAG_COLLECTION_BARE` | `rag_block_03_bare` | bare-metal сравнение (Б5.3) |
 | `RAG_DOCSTORE_PATH` | `var/rag_docstore.json` | состояние инкрементальной индексации |
 | `RAG_LLM_MODEL` | `gemma3:4b` | LLM генерации RAG-ответа |

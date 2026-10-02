@@ -61,7 +61,7 @@ class Chat(BaseModel):
     id: UUID = Field(default_factory=uuid4)
     owner_external_id: str
     interface: str
-    provider: Literal["openai", "ollama", "openrouter"]
+    provider: Literal["openai", "ollama", "openrouter", "deepseek"]
     model: str
     system_prompt: str | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

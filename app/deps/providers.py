@@ -15,6 +15,9 @@ def get_openai(request: Request):
 def get_openrouter(request: Request):
     return request.app.state.llm_openrouter
 
+def get_deepseek(request: Request):
+    return request.app.state.llm_deepseek
+
 def get_cache(request: Request):
     return request.app.state.redis
 
@@ -22,12 +25,14 @@ SettingsDep = Annotated[Settings, Depends(get_settings)]
 LLMOllamaDep = Annotated[object, Depends(get_ollama)]
 LLMOpenaiDep = Annotated[object, Depends(get_openai)]
 LLMOpenrouterDep = Annotated[object, Depends(get_openrouter)]
+LLMDeepseekDep = Annotated[object, Depends(get_deepseek)]
 CacheDep = Annotated[object, Depends(get_cache)]
 
 def get_llm_service(
     llm_ollama: LLMOllamaDep,
     llm_openai: LLMOpenaiDep,
     llm_openrouter: LLMOpenrouterDep,
+    llm_deepseek: LLMDeepseekDep,
     cache: CacheDep,
     settings: SettingsDep,
 ) -> LLMService:
@@ -35,6 +40,7 @@ def get_llm_service(
         llm_ollama=llm_ollama,
         llm_openai=llm_openai,
         llm_openrouter=llm_openrouter,
+        llm_deepseek=llm_deepseek,
         cache=cache,
         ttl=settings.cache_ttl_seconds)
 

@@ -252,3 +252,35 @@ async def test_llm_complete_retry_exhausted(mocker, llm_service, mock_openai, mo
     assert mock_openai.chat.completions.create.call_count == 3
     # Кеш не сохранялся
     mock_cache.setex.assert_not_called()
+
+def test_get_llm_routes_providers():
+    """Маршрутизация провайдеров: deepseek — отдельный клиент, остальные — по имени.
+
+    `deepseek` добавлен последним параметром конструктора, поэтому старые
+    вызовы без него продолжают работать (проверяется здесь же).
+    """
+    ollama, openai_, openrouter, deepseek = (object() for _ in range(4))
+    service = LLMService(
+        llm_ollama=ollama,
+        llm_openai=openai_,
+        llm_openrouter=openrouter,
+        llm_deepseek=deepseek,
+        cache=None,
+    )
+
+    assert service.get_llm("ollama") is ollama
+    assert service.get_llm("openai") is openai_
+    assert service.get_llm("openrouter") is openrouter
+    assert service.get_llm("deepseek") is deepseek
+    # Неизвестный провайдер — исторический дефолт: локальная Ollama.
+    assert service.get_llm("unknown") is ollama
+
+
+def test_get_llm_without_deepseek_client():
+    """Сервис, собранный без deepseek-клиента (старые сценарии), не падает."""
+    ollama = object()
+    service = LLMService(
+        llm_ollama=ollama, llm_openai=None, llm_openrouter=None, cache=None
+    )
+
+    assert service.get_llm("deepseek") is None

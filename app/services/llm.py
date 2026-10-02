@@ -33,10 +33,14 @@ except ImportError:
 logger = logging.getLogger("llm")
 
 class LLMService:
-    def __init__(self, llm_ollama, llm_openai, llm_openrouter, cache, ttl: int = 3600):
+    def __init__(self, llm_ollama, llm_openai, llm_openrouter, cache, ttl: int = 3600,
+                 llm_deepseek=None):
         self.llm_ollama = llm_ollama
         self.llm_openai = llm_openai
         self.llm_openrouter = llm_openrouter
+        # DeepSeek добавлен последним параметром: старые вызовы (тесты, скрипты)
+        # передают первые пять аргументов и остаются рабочими.
+        self.llm_deepseek = llm_deepseek
         self.cache = cache
         self.ttl = ttl
 
@@ -45,6 +49,8 @@ class LLMService:
             return self.llm_openai
         elif provider == "openrouter":
             return  self.llm_openrouter
+        elif provider == "deepseek":
+            return self.llm_deepseek
         return  self.llm_ollama
 
     def _key(self, req: ChatRequest) -> str:
@@ -63,7 +69,7 @@ class LLMService:
         raw_prompt: str,
         response_content: str | None,
         model: str,
-        provider: Literal["openai", "ollama", "openrouter"],
+        provider: Literal["openai", "ollama", "openrouter", "deepseek"],
         usage: Usage | None,
         finish_reason: str | None,
         latency_ms: float

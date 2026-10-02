@@ -18,7 +18,7 @@ class ModelInfo(BaseModel):
     )
 
     id: str
-    provider: Literal["openai", "ollama", "openrouter"] = "ollama"
+    provider: Literal["openai", "ollama", "openrouter", "deepseek"] = "ollama"
     input_per_1m: float = 0.0
     output_per_1m: float = 0.0
     context_window: int | None = None
@@ -53,5 +53,24 @@ CATALOG: dict[str, ModelInfo] = {
         input_per_1m=2.50,
         output_per_1m=10.00,
         context_window=128_000,
+    ),
+    # -- DeepSeek (OpenAI-совместимый эндпоинт, работает без VPN) --
+    # Цены — peak-тариф за 1M токенов; на входе берём cache miss (верхняя
+    # граница: при попадании в кэш вход дешевле в 50 раз). Контекст — 1M
+    # токенов, версия deepseek-v4-flash = DeepSeek-V4.1-Flash (в ответах API
+    # модель называется deepseek-flash).
+    "deepseek-v4-flash": ModelInfo(
+        id="deepseek-v4-flash",
+        provider="deepseek",
+        input_per_1m=0.30,
+        output_per_1m=1.20,
+        context_window=1_000_000,
+    ),
+    "deepseek-v4-pro": ModelInfo(
+        id="deepseek-v4-pro",
+        provider="deepseek",
+        input_per_1m=1.32,
+        output_per_1m=3.96,
+        context_window=1_000_000,
     ),
 }

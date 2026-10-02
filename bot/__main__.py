@@ -18,7 +18,7 @@ from bot.handlers import register_routers
 from bot.services.alert_drain import drain_alerts
 from bot.services.backend_client import BackendClient
 from bot.services.http import build_http_client
-from bot.web import build_api
+from bot.web import build_api, build_disabled_api
 
 logging.basicConfig(
     level=logging.INFO,
@@ -27,12 +27,30 @@ logging.basicConfig(
 log = logging.getLogger("bot")
 
 
+async def _serve_disabled(settings, reason: str) -> None:
+    """Поднимает только HTTP-заглушку бота (без Telegram polling)."""
+    api = build_disabled_api(reason, settings.internal_token.get_secret_value())
+    config = uvicorn.Config(
+        api,
+        host="0.0.0.0",
+        port=settings.bot_api_port,
+        log_level="info",
+    )
+    await uvicorn.Server(config).serve()
+
+
 async def main() -> None:
     settings = get_bot_settings()
 
     token = settings.bot_token.get_secret_value()
     if not token:
-        raise ValueError("BOT_TOKEN is empty — задайте токен в .env")
+        # Чистый клон: в .env.example токен пустой. Не падаем (иначе контейнер
+        # уходит в рестарт-луп и `make up --wait` завершается ошибкой), а
+        # поднимаем HTTP-заглушку: /health отвечает, /notify — 503.
+        reason = "BOT_TOKEN не задан: бот запущен в режиме заглушки (без polling)"
+        log.warning(reason)
+        await _serve_disabled(settings, reason)
+        return
 
     # Прокси для Telegram API: если задан PROXY_URL — создаём AiohttpSession
     # с ним. aiohttp-socks (уже в зависимостях) поддерживает HTTP-прокси.

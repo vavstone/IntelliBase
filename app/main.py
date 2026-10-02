@@ -57,6 +57,12 @@ async def lifespan(app: FastAPI):
     )
     app.state.http_external = http_external
 
+    # HTTP-клиент без прокси — для API, доступных напрямую (DeepSeek). Через
+    # внешний прокси такой запрос падает на проверке сертификата: прокси
+    # подменяет TLS-цепочку своим самоподписанным сертификатом.
+    http_direct = httpx.AsyncClient(timeout=_timeout, limits=_limits)
+    app.state.http_direct = http_direct
+
     app.state.llm_ollama = AsyncOpenAI(
         base_url=settings.llm.ollama_base_url,
         api_key="ollama",
@@ -75,6 +81,13 @@ async def lifespan(app: FastAPI):
         base_url=settings.llm.openrouter_base_url,
         api_key=settings.llm.openrouter_api_key.get_secret_value(),
         http_client=http_external,
+        timeout=settings.llm.request_timeout,
+        max_retries=settings.llm.max_retries,
+    )
+    app.state.llm_deepseek = AsyncOpenAI(
+        base_url=settings.llm.deepseek_base_url,
+        api_key=settings.llm.deepseek_api_key.get_secret_value(),
+        http_client=http_direct,
         timeout=settings.llm.request_timeout,
         max_retries=settings.llm.max_retries,
     )
@@ -240,11 +253,13 @@ async def lifespan(app: FastAPI):
         await app.state.llm_ollama.close()
         await app.state.llm_openai.close()
         await app.state.llm_openrouter.close()
+        await app.state.llm_deepseek.close()
     except Exception:
         pass
     try:
         await app.state.http_ollama.aclose()
         await app.state.http_external.aclose()
+        await app.state.http_direct.aclose()
     except Exception:
         pass
     if app.state.redis is not None:

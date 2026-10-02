@@ -61,11 +61,13 @@ class ChatService:
         rag_enable_chat: bool = False,
         rag_condense_enabled: bool = False,
         rag_score_threshold: float = 0.5,
+        llm_deepseek=None,
     ):
         self.repository = repository
         self.llm_ollama = llm_ollama
         self.llm_openai = llm_openai
         self.llm_openrouter = llm_openrouter
+        self.llm_deepseek = llm_deepseek
         self.context_window = context_window
         self.default_provider = default_provider
         self.default_model = default_model
@@ -84,6 +86,8 @@ class ChatService:
             return self.llm_openai
         elif provider == "openrouter":
             return  self.llm_openrouter
+        elif provider == "deepseek":
+            return  self.llm_deepseek
         return  self.llm_ollama
 
     def _rag_active(self) -> bool:
@@ -93,7 +97,7 @@ class ChatService:
         self,
         owner_external_id: str,
         interface: str,
-        provider: Literal["openai", "ollama", "openrouter"],
+        provider: Literal["openai", "ollama", "openrouter", "deepseek"],
         model: str,
         system_prompt: str | None = None,
     ) -> Chat:
@@ -109,7 +113,7 @@ class ChatService:
             self,
             owner_external_id: str,
             interface: str,
-            provider: Literal["openai", "ollama", "openrouter"],
+            provider: Literal["openai", "ollama", "openrouter", "deepseek"],
             model: str,
             system_prompt: str | None = None,
     ) -> Chat:
@@ -326,7 +330,7 @@ class ChatService:
         buffer = ""
         usage = None
         extra = {}
-        if chat.provider in ("openai", "openrouter"):
+        if chat.provider in ("openai", "openrouter", "deepseek"):
             extra["stream_options"] = {"include_usage": True}
 
         try:
@@ -472,7 +476,7 @@ class ChatService:
 
         # stream_options — только для OpenAI-совместимых провайдеров
         extra = {}
-        if chat.provider in ("openai", "openrouter"):
+        if chat.provider in ("openai", "openrouter", "deepseek"):
             extra["stream_options"] = {"include_usage": True}
 
         try:

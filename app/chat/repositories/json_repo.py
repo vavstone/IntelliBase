@@ -37,7 +37,7 @@ class JsonChatRepository:
             self,
             owner_external_id: str,
             interface: str,
-            provider: Literal["openai", "ollama", "openrouter"],
+            provider: Literal["openai", "ollama", "openrouter", "deepseek"],
             model: str,
             system_prompt: str | None = None
     ) -> Chat:
@@ -67,7 +67,7 @@ class JsonChatRepository:
             self,
             owner_external_id: str,
             interface: str,
-            provider: Literal["openai", "ollama", "openrouter"],
+            provider: Literal["openai", "ollama", "openrouter", "deepseek"],
             model: str,
             system_prompt: str | None = None
     ) -> Chat:

@@ -49,3 +49,29 @@ def build_api(bot: Bot, internal_token: str) -> FastAPI:
         return {"status": "ok"}
 
     return api
+
+
+def build_disabled_api(reason: str, internal_token: str) -> FastAPI:
+    """HTTP-заглушка для запуска без BOT_TOKEN.
+
+    Контейнер бота остаётся работоспособным для compose (`/health` отвечает),
+    но сообщения не принимает и не отправляет: `/notify` возвращает 503.
+    Нужна, чтобы на чистом клоне (в `.env` нет токена) `make up --wait`
+    не падал из-за вечно перезапускающегося контейнера.
+    """
+    api = FastAPI(title="bot-notify-api (disabled)")
+
+    @api.get("/health")
+    async def health() -> dict:
+        return {"status": "ok", "bot": "disabled", "reason": reason}
+
+    @api.post("/notify")
+    async def notify(
+        req: NotifyRequest,
+        x_internal_token: str = Header(...),
+    ) -> dict:
+        if x_internal_token != internal_token:
+            raise HTTPException(status_code=401, detail="invalid token")
+        raise HTTPException(status_code=503, detail=reason)
+
+    return api

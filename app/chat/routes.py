@@ -70,7 +70,7 @@ class CreateChatIn(BaseModel):
 
     owner_external_id: str
     interface: str
-    provider: Literal["openai", "ollama", "openrouter"] | None = None
+    provider: Literal["openai", "ollama", "openrouter", "deepseek"] | None = None
     model: str | None = None
     system_prompt: str | None = None
     force_new: bool = False
