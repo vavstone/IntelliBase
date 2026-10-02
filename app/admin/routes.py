@@ -19,7 +19,7 @@ from datetime import datetime
 from typing import Annotated
 
 import httpx
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 
 from app.admin.repository import AdminRepository
 from app.admin.schemas import (
@@ -34,6 +34,7 @@ from app.admin.schemas import (
 from app.core.config import get_settings
 from app.deps.providers import SessionFactoryDep, SettingsDep
 from app.services.alerter import ack_alert, fetch_pending_alerts, fire_alert
+from app.services.llm import read_cache_counters
 from app.services.broadcaster import (
     broadcast_sync,
     enqueue_broadcast,
@@ -61,10 +62,24 @@ async def require_admin(
     response_model=StatsOut,
 )
 async def stats(
-    session_factory: SessionFactoryDep, window_hours: int = 24
+    request: Request,
+    session_factory: SessionFactoryDep,
+    window_hours: int = 24,
 ) -> StatsOut:
+    """Агрегаты за окно. Счётчики кэша живут в Redis, а не в PG, поэтому
+    подмешиваем их здесь: репозиторий остаётся чисто БД-слоем."""
     repo = AdminRepository(session_factory)
-    return await repo.compute_stats(window_hours=window_hours)
+    result = await repo.compute_stats(window_hours=window_hours)
+
+    hits, misses = await read_cache_counters(getattr(request.app.state, "redis", None))
+    total = hits + misses
+    return result.model_copy(
+        update={
+            "cache_hits": hits,
+            "cache_misses": misses,
+            "cache_hit_rate": round(hits / total, 4) if total else 0.0,
+        }
+    )
 
 
 @router.get(

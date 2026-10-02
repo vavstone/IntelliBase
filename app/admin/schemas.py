@@ -8,8 +8,11 @@ from pydantic import BaseModel, Field
 class StatsOut(BaseModel):
     """Агрегаты за окно времени.
 
-    avg_latency_ms и moderation_block_rate считаются по таблице request_metrics,
-    которая заполняется observability-middleware на каждом запросе.
+    total_requests, avg_latency_ms, p95_latency_ms и moderation_block_rate считаются
+    по таблице request_metrics, которая заполняется observability-middleware на
+    каждом запросе (служебные /health и /ready исключены — иначе пробы
+    healthcheck'ов перекашивают распределение). cache_* — счётчики кэша LLM из
+    Redis за всё время работы сервиса (подмешивает роут /stats).
 
     RAG-дельта (Б5.5): refusal_rate — доля отказов «не нашёл», negative_feedback_rate
     — доля отрицательных оценок, knowledge_gaps — топ вопросов без уверенного ответа.
@@ -17,7 +20,14 @@ class StatsOut(BaseModel):
 
     total_messages: int
     active_users: int
+    total_requests: int = 0
     avg_latency_ms: float = 0.0
+    # p95 по request_metrics.duration_ms — «хвост» задержек для шага метрик в демо.
+    p95_latency_ms: float = 0.0
+    # Попадания/промахи кэша LLM (Redis, счётчики за всё время работы).
+    cache_hits: int = 0
+    cache_misses: int = 0
+    cache_hit_rate: float = 0.0
     moderation_block_rate: float = 0.0
     feedback_ratio: float = 0.0
     refusal_rate: float = 0.0

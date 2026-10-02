@@ -47,7 +47,7 @@ class ChatRequest(BaseModel):
 
     messages: Annotated[list[Message], Field(min_length=1, max_length=50)]
     model: str = "qwen2.5:3b"
-    provider: Literal["openai", "ollama", "openrouter"] = "ollama"
+    provider: Literal["openai", "ollama", "openrouter", "deepseek"] = "ollama"
     temperature: Annotated[float, Field(ge=0.0, le=2.0)] = 0.0
     max_tokens: Annotated[int, Field(ge=1, le=16_000)] = 1024
     stream: bool = False

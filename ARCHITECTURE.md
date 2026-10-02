@@ -61,6 +61,7 @@
 | Скрипт | Назначение |
 |--------|------------|
 | `ingest.py` | Полная индексация корпуса (`data/demo_kb` по умолчанию, `data/kb` — рабочий) в Qdrant |
+| `metrics.py` | Метрики для демо: p95 задержек и cache hit rate из admin-API, последние числа RAGAS (`make metrics`) |
 | `generate_demo_corpus.py` | Сборка демонстрационного корпуса (18 синтетических документов, `scripts/demo_corpus/`) |
 | `prepare_corpus.py` | Сборка корпуса из исходных документов |
 | `load_to_qdrant.py` | Загрузка готового JSONL в Qdrant |

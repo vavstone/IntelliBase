@@ -56,6 +56,12 @@ class AdminRepository:
                         """
                         SELECT
                             COALESCE(AVG(duration_ms), 0) AS avg_latency_ms,
+                            COALESCE(
+                                PERCENTILE_CONT(0.95) WITHIN GROUP (
+                                    ORDER BY duration_ms
+                                ),
+                                0
+                            ) AS p95_latency_ms,
                             COUNT(*) AS total_requests,
                             COUNT(*) FILTER (
                                 WHERE status_code = 403
@@ -63,13 +69,18 @@ class AdminRepository:
                             ) AS blocked_requests
                         FROM request_metrics
                         WHERE created_at >= :since
+                          -- Служебные пробы healthcheck'ов идут каждые 15 секунд и
+                          -- перекашивают распределение (p95 уезжает в миллисекунды):
+                          -- считаем задержки пользовательских запросов.
+                          AND path NOT IN ('/health', '/ready')
                         """
                     ),
                     {"since": since},
                 )
             ).first()
             avg_latency = (metrics_row.avg_latency_ms if metrics_row else 0) or 0.0
-            total_reqs = (metrics_row.total_requests if metrics_row else 0) or 1
+            p95_latency = (metrics_row.p95_latency_ms if metrics_row else 0) or 0.0
+            total_reqs = (metrics_row.total_requests if metrics_row else 0) or 0
             blocked = (metrics_row.blocked_requests if metrics_row else 0) or 0
             block_rate = blocked / total_reqs if total_reqs > 0 else 0.0
 
@@ -114,7 +125,9 @@ class AdminRepository:
         return StatsOut(
             total_messages=total or 0,
             active_users=active or 0,
+            total_requests=total_reqs,
             avg_latency_ms=round(avg_latency, 2),
+            p95_latency_ms=round(p95_latency, 2),
             moderation_block_rate=round(block_rate, 4),
             feedback_ratio=round(ratio, 4),
             refusal_rate=round(refusal_rate, 4),

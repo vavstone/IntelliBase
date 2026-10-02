@@ -18,8 +18,10 @@ UV ?= uv
 CORPUS ?= data/demo_kb
 # Дополнительные аргументы smoke (например, SMOKE_ARGS="--with-rag").
 SMOKE_ARGS ?=
+# Дополнительные аргументы metrics (например, METRICS_ARGS="--window-hours 168").
+METRICS_ARGS ?=
 
-.PHONY: help up down restart ps logs smoke smoke-rag test test-all ingest reindex eval shell clean
+.PHONY: help up down restart ps logs smoke smoke-rag test test-all ingest reindex eval metrics shell clean
 
 help: ## Список целей
 	@echo "IntelliBase — доступные команды:"
@@ -74,6 +76,9 @@ reindex: ## Полная переиндексация: чистит коллек
 
 eval: ## Оценка качества RAG (RAGAS): нужны LLM и наполненный корпус
 	$(UV) run python scripts/run_eval.py
+
+metrics: ## Метрики для демо: p95, cache hit rate, последний RAGAS (нужен стек)
+	$(UV) run python scripts/metrics.py $(METRICS_ARGS)
 
 shell: ## Bash внутри контейнера app
 	$(COMPOSE) exec app bash

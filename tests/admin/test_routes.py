@@ -252,3 +252,50 @@ async def test_handoff_paused_for_human():
     assert data["status"] == "ok"
     mock_alert.assert_awaited_once()
     mock_notify.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_stats_merges_cache_counters_and_p95():
+    """p95 приходит из БД-агрегата, счётчики кэша — из Redis (роут их подмешивает)."""
+    app = _build_app()
+    app.state.redis = AsyncMock()
+    app.state.redis.get = AsyncMock(side_effect=["3", "1"])  # hits, misses
+
+    mock_repo = MagicMock()
+    mock_repo.compute_stats = AsyncMock(return_value=StatsOut(
+        total_messages=5, active_users=2,
+        total_requests=40, avg_latency_ms=120.0, p95_latency_ms=980.5,
+    ))
+
+    with (
+        patch("app.admin.routes.get_settings", return_value=_mock_settings()),
+        patch("app.admin.routes.AdminRepository", return_value=mock_repo),
+    ):
+        client = TestClient(app)
+        resp = client.get("/chats/admin/stats", headers=_auth_headers())
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["p95_latency_ms"] == 980.5
+    assert data["total_requests"] == 40
+    assert data["cache_hits"] == 3
+    assert data["cache_misses"] == 1
+    assert data["cache_hit_rate"] == 0.75
+
+
+@pytest.mark.anyio
+async def test_stats_without_redis_reports_zero_cache():
+    """Redis не поднят (нет app.state.redis) — статистика всё равно отдаётся."""
+    app = _build_app()
+    mock_repo = MagicMock()
+    mock_repo.compute_stats = AsyncMock(return_value=StatsOut(total_messages=1, active_users=1))
+
+    with (
+        patch("app.admin.routes.get_settings", return_value=_mock_settings()),
+        patch("app.admin.routes.AdminRepository", return_value=mock_repo),
+    ):
+        client = TestClient(app)
+        resp = client.get("/chats/admin/stats", headers=_auth_headers())
+
+    assert resp.status_code == 200
+    assert resp.json()["cache_hit_rate"] == 0.0

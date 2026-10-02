@@ -32,6 +32,26 @@ except ImportError:
 
 logger = logging.getLogger("llm")
 
+# Счётчики обращений к кэшу (Redis). Нужны для cache hit rate в метриках
+# (`make metrics` → /chats/admin/stats). Ключи без TTL: это накопительные
+# счётчики за всё время работы, окно задаётся не ими.
+CACHE_HIT_KEY = "llm:cache:hit"
+CACHE_MISS_KEY = "llm:cache:miss"
+
+
+async def read_cache_counters(cache) -> tuple[int, int]:
+    """Возвращает (hits, misses). Без кэша или при ошибке Redis — (0, 0)."""
+    if cache is None:
+        return 0, 0
+    try:
+        hits = await cache.get(CACHE_HIT_KEY)
+        misses = await cache.get(CACHE_MISS_KEY)
+    except Exception as exc:  # noqa: BLE001 — метрика не должна ломать запрос
+        logger.debug("Счётчики кэша недоступны: %s", exc)
+        return 0, 0
+    return int(hits or 0), int(misses or 0)
+
+
 class LLMService:
     def __init__(self, llm_ollama, llm_openai, llm_openrouter, cache, ttl: int = 3600,
                  llm_deepseek=None):
@@ -150,6 +170,7 @@ class LLMService:
         if blob:
             resp = ChatResponse.model_validate_json(blob)
             resp.cached = True
+            await self._count_cache(CACHE_HIT_KEY)
             return resp
 
         try:
@@ -158,7 +179,17 @@ class LLMService:
             logger.error("LLM call failed after retries: %s", e)
             raise
         await self.cache.setex(key, self.ttl, resp.model_dump_json())
+        await self._count_cache(CACHE_MISS_KEY)
         return resp
+
+    async def _count_cache(self, key: str) -> None:
+        """Инкремент счётчика кэша. Fail-soft: метрика не должна ломать ответ."""
+        if self.cache is None:
+            return
+        try:
+            await self.cache.incr(key)
+        except Exception as exc:  # noqa: BLE001 — Redis недоступен или мок без incr
+            logger.debug("Счётчик %s не обновлён: %s", key, exc)
 
     async def _call_with_logging(self, req: ChatRequest) -> ChatResponse:
         raw_prompt = self._extract_prompt(req)

@@ -11,6 +11,7 @@
 make up         # поднять стек и дождаться готовности (docker compose up -d --build --wait)
 make smoke      # проверить: контейнеры, /health, /ready, коллекция Qdrant, Phoenix
 make smoke-rag  # то же + сквозной вопрос к RAG (нужны LLM и наполненный корпус)
+make metrics    # метрики: p95 задержек, cache hit rate, последние числа RAGAS
 make down       # остановить стек (данные в томах сохраняются)
 make help       # список всех целей
 ```
@@ -18,6 +19,21 @@ make help       # список всех целей
 Вспомогательные: `make logs`, `make ps`, `make restart`, `make shell`,
 `make test`, `make test-all`, `make ingest`, `make reindex`, `make eval`,
 `make clean` (удаляет тома — осторожно).
+
+### Метрики (`make metrics`)
+
+Печатает две группы цифр:
+
+* из admin-API `/chats/admin/stats` — задержки за окно (по умолчанию 24 ч,
+  `METRICS_ARGS="--window-hours 168"` для недели), cache hit rate и доля отказов
+  RAG. Задержки считаются **без** служебных `/health` и `/ready`: пробы
+  healthcheck'ов идут каждые 15 секунд и без этого фильтра p95 уезжает в миллисекунды;
+* из последнего файла `tests/eval/results/*.csv` — метрики RAGAS
+  (faithfulness, answer_relevancy, context_precision, context_recall, has_citation).
+
+Нужны поднятый стек и `ADMIN_TOKEN` в `.env`. Цель запускается через `uv` на
+хосте (не в контейнере): файлы результатов RAGAS лежат в `tests/`, а этот каталог
+в образ не копируется.
 
 `make smoke` запускается изнутри контейнера `app`, если стек поднят (там гарантированно
 есть python), иначе — локально через `uv`. Код возврата 1 — есть провал (используется

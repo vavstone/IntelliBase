@@ -284,3 +284,51 @@ def test_get_llm_without_deepseek_client():
     )
 
     assert service.get_llm("deepseek") is None
+
+
+@pytest.mark.asyncio
+async def test_complete_counts_cache_miss_then_hit(mock_cache):
+    """Промах и попадание кэша пишут счётчики в Redis — основа cache hit rate."""
+    from app.services.llm import CACHE_HIT_KEY, CACHE_MISS_KEY
+
+    service = LLMService(
+        llm_ollama=AsyncMock(), llm_openai=None, llm_openrouter=None,
+        cache=mock_cache, ttl=3600,
+    )
+    req = ChatRequest(
+        messages=[{"role": "user", "content": "Привет"}],
+        model="test-model", provider="ollama", temperature=0.0,
+    )
+    response = ChatResponse(
+        content="ответ", model="test-model",
+        usage=Usage(prompt_tokens=5, completion_tokens=1, total_tokens=6),
+    )
+
+    # Промах: в кэше пусто → вызываем LLM (замокан) и считаем промах.
+    mock_cache.get = AsyncMock(return_value=None)
+    service._call_with_logging = AsyncMock(return_value=response)
+    await service.complete(req)
+    mock_cache.incr.assert_awaited_with(CACHE_MISS_KEY)
+
+    # Попадание: готовый ответ в кэше → LLM не вызывается, считаем попадание.
+    mock_cache.incr.reset_mock()
+    mock_cache.get = AsyncMock(return_value=response.model_dump_json())
+    cached = await service.complete(req)
+    assert cached.cached is True
+    mock_cache.incr.assert_awaited_with(CACHE_HIT_KEY)
+
+
+@pytest.mark.asyncio
+async def test_read_cache_counters_fail_soft():
+    """Счётчики кэша не должны ломать метрики: без Redis и при ошибке — нули."""
+    from app.services.llm import read_cache_counters
+
+    assert await read_cache_counters(None) == (0, 0)
+
+    broken = AsyncMock()
+    broken.get = AsyncMock(side_effect=RuntimeError("redis down"))
+    assert await read_cache_counters(broken) == (0, 0)
+
+    working = AsyncMock()
+    working.get = AsyncMock(side_effect=["5", "3"])
+    assert await read_cache_counters(working) == (5, 3)
