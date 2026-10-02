@@ -22,6 +22,19 @@ except Exception:
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+# `.env` читаем до импорта llama_index/transformers: HF_HUB_OFFLINE из него должен
+# попасть в окружение раньше, чем huggingface_hub прочитает свои переменные.
+# В контейнере то же самое делает compose (env_file), на хосте — этот вызов.
+from smoke import load_env  # noqa: E402
+
+load_env(Path(__file__).resolve().parent.parent / ".env")
+
+# TLS-инспекция Kaspersky подменяет сертификаты: certifi (httpx/openai) их не признаёт,
+# а хранилище сертификатов Windows — признаёт (тот же приём, что в experiments/*).
+import truststore  # noqa: E402
+
+truststore.inject_into_ssl()
+
 from llama_index.core import Document, SimpleDirectoryReader  # noqa: E402
 from llama_index.core.base.llms.types import LLMMetadata, MessageRole  # noqa: E402
 from llama_index.core.node_parser import SentenceSplitter  # noqa: E402

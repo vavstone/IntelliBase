@@ -1,0 +1,16 @@
+{
+  "label": "demo",
+  "timestamp": "2026-10-02_1531",
+  "collection": "rag_demo",
+  "chunk_size": 512,
+  "chunk_overlap": 64,
+  "top_k": 10,
+  "rerank_enabled": false,
+  "rag_llm_model": "deepseek-v4-flash",
+  "embedding_model": "intfloat/multilingual-e5-large",
+  "judge_provider": "deepseek",
+  "judge_model": "deepseek-v4-flash",
+  "n_rows": 27,
+  "judge_prompt_tokens": 392719,
+  "judge_completion_tokens": 27723
+}

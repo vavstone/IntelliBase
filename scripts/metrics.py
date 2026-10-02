@@ -63,7 +63,7 @@ def fetch_stats(app_url: str, admin_token: str, window_hours: int) -> dict | Non
     return None
 
 
-def _as_float(raw: str | None) -> float | None:
+def as_float(raw: str | None) -> float | None:
     """Число из ячейки CSV. None — пусто, «nan» или не число (ошибка прогона).
 
     `has_citation` пишется как true/false, поэтому булевы значения тоже
@@ -82,17 +82,33 @@ def _as_float(raw: str | None) -> float | None:
         return None
 
 
-def latest_ragas() -> tuple[str, dict[str, float], int] | None:
+def latest_results_file(label: str | None = None) -> Path | None:
+    """Самый свежий RAGAS-CSV. None — файлов нет.
+
+    `label` — подстрока имени (например `demo`), чтобы выбрать прогон конкретной
+    конфигурации: имена имеют вид `{timestamp}_{label}.csv`.
+    """
+    files = sorted(RESULTS_DIR.glob("*.csv"))
+    if label:
+        files = [f for f in files if label in f.stem]
+    return files[-1] if files else None
+
+
+def load_results(path: Path) -> list[dict[str, str]]:
+    """Строки RAGAS-CSV как словари (пустой список — файл без строк)."""
+    return list(csv.DictReader(path.open(encoding="utf-8")))
+
+
+def latest_ragas(label: str | None = None) -> tuple[str, dict[str, float], int] | None:
     """Средние по последнему RAGAS-прогону: (label, метрики, число вопросов).
 
     None — файлов с результатами нет. Пустые значения (ошибки прогона)
     пропускаются: метрика считается по тем вопросам, где она посчиталась.
     """
-    files = sorted(RESULTS_DIR.glob("*.csv"))
-    if not files:
+    path = latest_results_file(label)
+    if path is None:
         return None
-    path = files[-1]
-    rows = list(csv.DictReader(path.open(encoding="utf-8")))
+    rows = load_results(path)
     if not rows:
         return None
 
@@ -100,7 +116,7 @@ def latest_ragas() -> tuple[str, dict[str, float], int] | None:
     for column in RAGAS_COLUMNS:
         values = []
         for row in rows:
-            value = _as_float(row.get(column))
+            value = as_float(row.get(column))
             if value is not None:
                 values.append(value)
         if values:

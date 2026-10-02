@@ -210,7 +210,11 @@ data/orig_docs
 data/rag-block-03
 data/kb
 
-tests/eval/results
+# Прогоны RAGAS: в git остаются только прогоны на демо-корпусе (метка `demo`
+# в имени файла) — корпус и вопросы синтетические. Прогоны на рабочем корпусе
+# (ФТС) — локально.
+tests/eval/results/*
+!tests/eval/results/*_demo.*
 tests/eval/golden_dataset_raw.csv
 tests/eval/golden_dataset.json
 docs/screenshots/5_6

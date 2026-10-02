@@ -32,11 +32,14 @@ from ragas.metrics.collections import (
 )
 
 from app.core.config import Settings
+from app.eval.citations import strip_citations
+from app.services.llm import DEEPSEEK_NO_THINKING
 
-# DeepSeek (deepseek-v4-flash) — reasoning-модель: по умолчанию на каждый вызов
-# генерирует chain-of-thought (reasoning_tokens ~3–4x от полезного ответа). Для
-# extract/summary/judge-задач это чистый оверхед — отключаем через extra_body.
-DEEPSEEK_NO_THINKING = {"extra_body": {"thinking": {"type": "disabled"}}}
+# Дефолт RAGAS — 1024 output-токена на вызов судьи; на длинных ответах список
+# утверждений (faithfulness) и эталонов (context_recall) в него не влезает, и
+# строка падает с «The output is incomplete due to a max_tokens length limit».
+# В доке llm_factory для этого случая рекомендован запас 4096+.
+JUDGE_MAX_TOKENS = 4096
 
 
 class TokenCounter:
@@ -109,6 +112,7 @@ def build_judge(settings: Settings) -> Any:
             settings.eval_judge_model,
             provider="openai",
             client=client,
+            max_tokens=JUDGE_MAX_TOKENS,
             **DEEPSEEK_NO_THINKING,
         )
     elif provider == "openai":
@@ -119,7 +123,12 @@ def build_judge(settings: Settings) -> Any:
             ),
             counter,
         )
-        judge = llm_factory(settings.eval_judge_model, provider="openai", client=client)
+        judge = llm_factory(
+            settings.eval_judge_model,
+            provider="openai",
+            client=client,
+            max_tokens=JUDGE_MAX_TOKENS,
+        )
     elif provider == "anthropic":
         api_key = (
             settings.anthropic_api_key.get_secret_value()
@@ -189,6 +198,26 @@ def make_has_citation(judge: Any):
     return has_citation
 
 
+async def answer_relevancy_value(metrics: RagasMetrics, question: str, answer: str) -> float:
+    """AnswerRelevancy с одним повтором на случай сбоя судьи.
+
+    Ровно `0.0` у этой метрики возникает в двух случаях, и различить их снаружи
+    нельзя: (а) судья не сгенерировал вопрос по ответу — сбой; (б) ответ уклончивый
+    (`noncommittal`), и RAGAS по своей семантике обнуляет оценку. Второй случай для
+    нас легитимен — это честный отказ RAG по score-guard, поэтому повторяем один
+    раз (лечит (а)) и возвращаем значение как есть, не выдавая ноль за «нет данных».
+    В отчёте такие строки разбираются отдельно.
+    """
+    value = (
+        await metrics.answer_relevancy.ascore(user_input=question, response=answer)
+    ).value
+    if value:
+        return value
+    return (
+        await metrics.answer_relevancy.ascore(user_input=question, response=answer)
+    ).value
+
+
 async def eval_row(rag: Any, row: dict, metrics: RagasMetrics, has_citation: Any) -> dict:
     """Пять метрик + latency по одной строке golden dataset.
 
@@ -203,6 +232,11 @@ async def eval_row(rag: Any, row: dict, metrics: RagasMetrics, has_citation: Any
     result = await rag.evaluate_inputs(row.get("user_input", ""))
     latency_ms = round((perf_counter() - t0) * 1000.0, 1)
     answer = result.get("answer", "")
+    # Метрики содержания судят текст ответа без маркеров цитат — иначе маркер
+    # превращается в «неподтверждённое утверждение» (см. app/eval/citations.py).
+    # `or answer` — страховка: если ответ состоял из одних маркеров, метрики
+    # (у них response обязателен) получили бы пустую строку и упали с ValueError.
+    answer_text = strip_citations(answer) or answer
     contexts = result.get("retrieved_contexts") or []
     q = row.get("user_input", "")
     ref = (row.get("reference") or "").strip()
@@ -212,15 +246,13 @@ async def eval_row(rag: Any, row: dict, metrics: RagasMetrics, has_citation: Any
         "faithfulness": (
             (
                 await metrics.faithfulness.ascore(
-                    user_input=q, response=answer, retrieved_contexts=contexts
+                    user_input=q, response=answer_text, retrieved_contexts=contexts
                 )
             ).value
             if contexts
             else None
         ),
-        "answer_relevancy": (
-            await metrics.answer_relevancy.ascore(user_input=q, response=answer)
-        ).value,
+        "answer_relevancy": await answer_relevancy_value(metrics, q, answer_text),
         "context_precision": (
             (
                 await metrics.context_precision.ascore(

@@ -227,6 +227,24 @@ uv run --extra eval python scripts/run_eval.py --top-k 5 --label top_k_5
 uv run --extra eval --extra tracing python dev_tasks/verify_5_6.py
 ```
 
+### Прогон на демо-корпусе
+
+По умолчанию `make eval` считает метрики по демо-корпусу: golden —
+`tests/eval/golden_dataset_demo.json`, метка — `demo`, коллекция — `rag_demo`
+(из `.env`). Рабочий корпус: `make eval GOLDEN=tests/eval/golden_dataset.json LABEL=block_05`.
+
+```bash
+make eval          # RAGAS на демо-корпусе (нужны стек и ключ DeepSeek)
+make thresholds    # сверить последний прогон с порогами eval/thresholds.yaml
+make metrics       # те же числа + p95 и cache hit rate
+```
+
+Скрипты `generate_testset.py` и `run_eval.py` сами подхватывают `.env`
+(`HF_HUB_OFFLINE=1` — модель E5 из кэша, без обращений к huggingface.co) и включают
+`truststore` — без него TLS-инспекция Kaspersky подменяет сертификат и часть запросов
+к DeepSeek падает с `CERTIFICATE_VERIFY_FAILED`. При запуске из контейнера это не нужно:
+там переменные приходят из compose.
+
 ### A/B по чанкингу: отдельная коллекция
 
 Смена chunk_size — это переиндексация (офлайн-контур). Нужна **отдельная коллекция и

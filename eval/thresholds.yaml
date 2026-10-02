@@ -1,6 +1,16 @@
-# Пороги для успешного прохождения оценки
-correctness_avg: 4.0   # средняя правильность по всем кейсам
-min_correctness: 2.0   # минимальная оценка правильности среди всех кейсов
-# Дополнительно можно добавить другие критерии:
-relevance_avg: 3.5
-completeness_avg: 3.5
+# Пороги качества RAG — гейт eval/check_thresholds.py (`make thresholds`).
+# Метрики RAGAS 0.4 по последнему прогону scripts/run_eval.py
+# (tests/eval/results/*.csv). Сравниваются средние по вопросам, на которых
+# метрика посчиталась: отказ score-guard даёт пустую ячейку, а не ноль.
+#
+# Значения — для демо-корпуса (data/demo_kb, коллекция rag_demo), на котором
+# получены 02.10: faithfulness 0.952, answer_relevancy 0.881,
+# context_precision 0.705, context_recall 0.864, has_citation 1.000.
+# Порог ставится ниже достигнутого с запасом на разброс, чтобы ловить регрессии.
+faithfulness: 0.85
+answer_relevancy: 0.80
+context_precision: 0.65
+context_recall: 0.80
+has_citation: 0.90
+# Минимальное число вопросов в прогоне — защита от «прогона на трёх вопросах».
+min_rows: 20

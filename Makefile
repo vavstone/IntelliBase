@@ -20,8 +20,14 @@ CORPUS ?= data/demo_kb
 SMOKE_ARGS ?=
 # Дополнительные аргументы metrics (например, METRICS_ARGS="--window-hours 168").
 METRICS_ARGS ?=
+# Дополнительные аргументы eval (например, EVAL_ARGS="--concurrency 4").
+EVAL_ARGS ?=
+# Golden dataset для `make eval`: по умолчанию демо-корпус под стать RAG_DATA_DIR.
+# Рабочий корпус: make eval GOLDEN=tests/eval/golden_dataset.json LABEL=block_05
+GOLDEN ?= tests/eval/golden_dataset_demo.json
+LABEL ?= demo
 
-.PHONY: help up down restart ps logs smoke smoke-rag test test-all ingest reindex eval metrics shell clean
+.PHONY: help up down restart ps logs smoke smoke-rag test test-all ingest reindex eval metrics thresholds shell clean
 
 help: ## Список целей
 	@echo "IntelliBase — доступные команды:"
@@ -74,11 +80,14 @@ ingest: ## Инкрементальная индексация корпуса (C
 reindex: ## Полная переиндексация: чистит коллекцию Qdrant и docstore
 	$(UV) run python scripts/ingest.py $(CORPUS) --full
 
-eval: ## Оценка качества RAG (RAGAS): нужны LLM и наполненный корпус
-	$(UV) run python scripts/run_eval.py
+eval: ## Оценка качества RAG (RAGAS) на демо-корпусе: нужны LLM и стек
+	$(UV) run --extra eval python scripts/run_eval.py --golden $(GOLDEN) --label $(LABEL) $(EVAL_ARGS)
 
 metrics: ## Метрики для демо: p95, cache hit rate, последний RAGAS (нужен стек)
 	$(UV) run python scripts/metrics.py $(METRICS_ARGS)
+
+thresholds: ## Пороги качества по последнему прогону RAGAS (гейт eval/check_thresholds.py)
+	$(UV) run python eval/check_thresholds.py
 
 shell: ## Bash внутри контейнера app
 	$(COMPOSE) exec app bash
