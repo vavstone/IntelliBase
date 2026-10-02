@@ -39,6 +39,15 @@ docs/
 !README.md
 notebooks/
 data/
+# В образ не копируются (COPY — только app/, bot/, scripts/, migrations/):
+# исходники, эксперименты и артефакты нужны лишь на хосте, но раздувают
+# контекст сборки.
+my_tasks/
+experiments/
+dev_tasks/
+eval/
+var/
+logs/
 
 # Docker
 Dockerfile
