@@ -1,0 +1,12 @@
+# Единые переводы строк. В индексе и на checkout — LF.
+#
+# Без этого правила на Windows (core.autocrlf=true, значение по умолчанию)
+# файлы выгружаются с CRLF, и `#!/bin/sh\r` в entrypoint.sh ломает запуск
+# контейнера: `exec /app/entrypoint.sh: no such file or directory`,
+# `make up` падает на первом шаге.
+* text=auto eol=lf
+
+# Windows-скрипты — CRLF, как принято в cmd.exe.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf

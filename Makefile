@@ -45,8 +45,12 @@ logs: ## Логи app и bot (Ctrl+C — выйти)
 
 smoke: ## Проверить живость стека: контейнеры, health, Qdrant, Phoenix
 	@if $(COMPOSE) ps --status running --services 2>/dev/null | grep -qx app; then \
-		$(COMPOSE) exec -T -e SMOKE_PHOENIX_URL=http://phoenix:6006 app \
-			python scripts/smoke.py $(SMOKE_ARGS); \
+		unhealthy=$$($(COMPOSE) ps --format '{{.Service}} {{.State}} {{.Health}}' \
+			| awk '$$2 != "running" || ($$3 != "" && $$3 != "healthy") \
+				{ print $$1 ":" $$2 "/" $$3 }'); \
+		$(COMPOSE) exec -T -e SMOKE_PHOENIX_URL=http://phoenix:6006 \
+			-e SMOKE_CONTAINERS="$$unhealthy" \
+			app python scripts/smoke.py $(SMOKE_ARGS); \
 	else \
 		$(UV) run python scripts/smoke.py $(SMOKE_ARGS); \
 	fi

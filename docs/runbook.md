@@ -39,6 +39,19 @@ HF_CACHE_DIR=C:/Users/<user>/.cache/huggingface     # Windows
 модель в собственном кэше внутри контейнера, теряет её при пересоздании и
 `/rag/query` отвечает 503. Проверка — `make smoke-rag`.
 
+### Если контейнер app уходит в рестарт-луп
+
+`docker logs llm-service` показывает `exec /app/entrypoint.sh: no such file or
+directory` — значит файлы выгружены с переводами строк CRLF, и шебанг в скрипте
+превратился в `#!/bin/sh\r`. Так бывает на Windows при `core.autocrlf=true`
+(значение по умолчанию), если в репозитории нет `.gitattributes` с `eol=lf`.
+Лечится переклонированием после обновления репозитория; локальная проверка:
+
+```bash
+head -c 20 entrypoint.sh | od -c   # ожидается "#!/bin/sh\n", без \r
+git config --get core.autocrlf     # true — не страшно, .gitattributes перекрывает
+```
+
 ## Запуск и остановка
 
 ### Docker-инфраструктура (Redis, Postgres, Qdrant, Phoenix)

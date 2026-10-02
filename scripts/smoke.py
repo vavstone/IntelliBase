@@ -91,7 +91,19 @@ def http(
 
 
 def check_containers() -> list[Check]:
-    """Статусы контейнеров стека (пропускается, если docker недоступен изнутри)."""
+    """Статусы контейнеров стека.
+
+    Изнутри контейнера docker недоступен, поэтому `make smoke` проверяет
+    контейнеры на хосте и передаёт результат в SMOKE_CONTAINERS: пусто — все
+    живы, иначе список проблемных вида `service:state/health`.
+    """
+    host_report = os.environ.get("SMOKE_CONTAINERS")
+    if host_report is not None:
+        host_report = host_report.strip()
+        if not host_report:
+            return [Check("контейнеры", OK, "все healthy (проверено с хоста)")]
+        return [Check("контейнеры", FAIL, host_report[:200])]
+
     try:
         out = subprocess.run(
             ["docker", "compose", "ps", "--format", "json"],
