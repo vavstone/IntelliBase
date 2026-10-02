@@ -30,6 +30,7 @@ from app.chat.prompt_selection import choose_by_split
 from app.chat.repository import ChatRepository, SystemPromptRepository
 from app.moderation.domain import ModerationResult
 from app.moderation.service import ModerationService
+from app.services.llm import DEEPSEEK_NO_THINKING
 
 logger = logging.getLogger("llm-service.chat")
 
@@ -41,6 +42,9 @@ CONDENSE_TEMPLATE = (
     "Последний вопрос: {question}\n"
     "Переписанный вопрос:"
 )
+
+# DEEPSEEK_NO_THINKING (см. app/services/llm.py) применяется к condense: иначе на
+# max_tokens=128 content приходит пустым и шаг молча деградирует до сырого вопроса.
 
 
 class ChatService:
@@ -237,11 +241,13 @@ class ChatService:
             return user_content
         history_str = "\n".join(f"{m.role}: {m.content}" for m in prior[-6:])
         prompt = CONDENSE_TEMPLATE.format(history=history_str, question=user_content)
+        extra = DEEPSEEK_NO_THINKING if chat.provider == "deepseek" else {}
         resp = await llm.chat.completions.create(
             model=chat.model or self.default_model,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.0,
             max_tokens=128,
+            **extra,
         )
         out = (resp.choices[0].message.content or "").strip()
         return out or user_content

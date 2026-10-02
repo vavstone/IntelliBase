@@ -148,9 +148,30 @@ async def test_condense_rewrites_followup(tmp_path) -> None:
         ChatMessage(chat_id=chat_id, role="assistant", content="…"),
         ChatMessage(chat_id=chat_id, role="user", content="а для них?"),
     ]
-    chat = SimpleNamespace(id=chat_id, model="qwen2.5:3b")
+    chat = SimpleNamespace(id=chat_id, model="qwen2.5:3b", provider="ollama")
     out = await svc._condense(chat, "а для них?", history, llm)
     assert out == "состав ТРОИС"
+    # Ollama: thinking-режима нет, extra_body не добавляем.
+    assert "extra_body" not in llm.calls[0]
+
+
+@pytest.mark.asyncio
+async def test_condense_disables_thinking_for_deepseek(tmp_path) -> None:
+    """DeepSeek в thinking-режиме на max_tokens=128 отдаёт пустой content — отключаем."""
+    completion = SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content="состав ТРОИС"))]
+    )
+    llm = _FakeLLM(completion=completion)
+    svc, _ = _service(tmp_path, llm=llm)
+    chat_id = uuid4()
+    history = [
+        ChatMessage(chat_id=chat_id, role="user", content="Что входит в КПС «Тарифы»?"),
+        ChatMessage(chat_id=chat_id, role="assistant", content="…"),
+        ChatMessage(chat_id=chat_id, role="user", content="а для них?"),
+    ]
+    chat = SimpleNamespace(id=chat_id, model="deepseek-v4-flash", provider="deepseek")
+    assert await svc._condense(chat, "а для них?", history, llm) == "состав ТРОИС"
+    assert llm.calls[0]["extra_body"] == {"thinking": {"type": "disabled"}}
 
 
 @pytest.mark.asyncio

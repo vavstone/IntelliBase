@@ -38,6 +38,12 @@ logger = logging.getLogger("llm")
 CACHE_HIT_KEY = "llm:cache:hit"
 CACHE_MISS_KEY = "llm:cache:miss"
 
+# deepseek-v4-flash по умолчанию в thinking-режиме: на коротком max_tokens весь
+# бюджет уходит в reasoning_content, а content приходит пустым (finish_reason=length).
+# Для служебных вызовов «вход → короткий выход» (condense в чате, extract/judge в
+# оценке RAGAS) размышления отключаем — иначе шаг молча деградирует.
+DEEPSEEK_NO_THINKING = {"extra_body": {"thinking": {"type": "disabled"}}}
+
 
 async def read_cache_counters(cache) -> tuple[int, int]:
     """Возвращает (hits, misses). Без кэша или при ошибке Redis — (0, 0)."""
