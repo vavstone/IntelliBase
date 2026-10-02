@@ -213,7 +213,7 @@ def main() -> int:
 
     app_url = os.environ.get("SMOKE_APP_URL", "http://localhost:8000").rstrip("/")
     qdrant_url = os.environ.get("QDRANT_URL", "http://localhost:6333").rstrip("/")
-    collection = os.environ.get("RAG_COLLECTION", "rag_block_05")
+    collection = os.environ.get("RAG_COLLECTION", "rag_demo")
     phoenix_url = os.environ.get("SMOKE_PHOENIX_URL", "http://localhost:6006").rstrip("/")
     phoenix_required = os.environ.get("PHOENIX_ENABLED", "false").lower() in {"1", "true", "yes"}
 

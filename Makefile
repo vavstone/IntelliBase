@@ -14,8 +14,8 @@ SHELL := /bin/sh
 
 COMPOSE ?= docker compose
 UV ?= uv
-# Корпус для индексации (переопределяется: make ingest CORPUS=data/demo_kb).
-CORPUS ?= data/kb
+# Корпус для индексации (переопределяется: make ingest CORPUS=data/kb).
+CORPUS ?= data/demo_kb
 # Дополнительные аргументы smoke (например, SMOKE_ARGS="--with-rag").
 SMOKE_ARGS ?=
 
@@ -62,7 +62,7 @@ test: ## Быстрые тесты (без интеграционных, тре�
 test-all: ## Полный прогон тестов (нужна поднятая инфраструктура)
 	$(UV) run pytest tests/ -q
 
-ingest: ## Инкрементальная индексация корпуса (CORPUS=data/kb)
+ingest: ## Инкрементальная индексация корпуса (CORPUS=data/demo_kb)
 	$(UV) run python scripts/ingest.py $(CORPUS)
 
 reindex: ## Полная переиндексация: чистит коллекцию Qdrant и docstore

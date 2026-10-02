@@ -60,7 +60,8 @@
 
 | Скрипт | Назначение |
 |--------|------------|
-| `ingest.py` | Полная индексация корпуса `data/kb` в Qdrant |
+| `ingest.py` | Полная индексация корпуса (`data/demo_kb` по умолчанию, `data/kb` — рабочий) в Qdrant |
+| `generate_demo_corpus.py` | Сборка демонстрационного корпуса (18 синтетических документов, `scripts/demo_corpus/`) |
 | `prepare_corpus.py` | Сборка корпуса из исходных документов |
 | `load_to_qdrant.py` | Загрузка готового JSONL в Qdrant |
 | `compare_metrics.py` | Сравнение cosine vs dot в Qdrant |
@@ -91,11 +92,11 @@
 
 ### Офлайн-контур (индексация) — `app/services/ingestion.py`
 
-1. Чтение корпуса `data/kb/<category>/…` (PDF/DOCX/HTML/MD) — ридеры pdf-inspector (PDF: постраничная классификация + markdown; legacy-откат PyMuPDF — `RAG_PDF_PARSER=pymupdf`), Docx, HTML, Markdown. Страницы без текстового слоя (сканы) пропускаются.
+1. Чтение корпуса `data/<корпус>/<category>/…` (PDF/DOCX/HTML/MD) — ридеры pdf-inspector (PDF: постраничная классификация + markdown; legacy-откат PyMuPDF — `RAG_PDF_PARSER=pymupdf`), Docx, HTML, Markdown. Страницы без текстового слоя (сканы) пропускаются. По умолчанию корпус — `data/demo_kb` (синтетические документы в git), рабочий — `data/kb`.
 2. Обогащение метаданными из пути и файла: `category` (папка-ПС), `version`, `visibility`, `last_modified` (стабильный, для идемпотентности).
 3. Чанкинг `SentenceSplitter` (chunk 512 / overlap 64).
 4. Эмбеддинг `intfloat/multilingual-e5-large` (dim 1024, локально, E5-префиксы `query:` / `passage:`).
-5. Запись в коллекцию Qdrant `rag_block_05` через `IngestionPipeline` + `DocstoreStrategy.UPSERTS` — инкрементально, дедуп по детерминированному doc-id и hash.
+5. Запись в коллекцию Qdrant (`rag_demo` для демо-корпуса, `rag_block_05` для рабочего — `RAG_COLLECTION`) через `IngestionPipeline` + `DocstoreStrategy.UPSERTS` — инкрементально, дедуп по детерминированному doc-id и hash.
 
 ### Онлайн-контур (запрос) — `app/services/rag.py`
 
@@ -110,7 +111,8 @@
 
 | Коллекция | Кто пишет | Назначение |
 |-----------|-----------|------------|
-| `rag_block_05` | `IngestionService` / `RAGService` | Рабочий RAG-индекс (LlamaIndex) |
+| `rag_demo` | `IngestionService` / `RAGService` | RAG-индекс демо-корпуса (по умолчанию) |
+| `rag_block_05` | `IngestionService` / `RAGService` | RAG-индекс рабочего корпуса (`RAG_DATA_DIR=data/kb`) |
 | `documents` | `VectorStore` | Векторный поиск без LlamaIndex (Б5.2) |
 
 ## Внешние сервисы и порты

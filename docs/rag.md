@@ -140,7 +140,7 @@ flowchart LR
         B --> C["Очистка + метаданные<br>category, version, page, last_modified"]
         C --> D["SentenceSplitter<br>512 / 64"]
         D --> E["Эмбеддинги<br>multilingual-e5-large"]
-        E --> F[("Qdrant<br>rag_block_05")]
+        E --> F[("Qdrant<br>rag_demo / rag_block_05")]
         G["docstore<br>var/rag_docstore.json"] -.->|"UPSERTS: 0 changed / N unchanged"| D
     end
     subgraph Online["Онлайн-контур — запрос (SLA: низкая задержка)"]
@@ -224,7 +224,7 @@ Recall@10=0.979 на golden-set из 20+ вопросов).
 IngestionPipeline(
     transformations=[SentenceSplitter(512, 64), HuggingFaceEmbedding("multilingual-e5-large")],
     docstore=SimpleDocumentStore(persist),      # var/rag_docstore.json
-    vector_store=QdrantVectorStore("rag_block_05"),
+    vector_store=QdrantVectorStore("rag_demo"),   # RAG_COLLECTION: демо-корпус; рабочий — rag_block_05
     docstore_strategy=DocstoreStrategy.UPSERTS,
 )
 ```
