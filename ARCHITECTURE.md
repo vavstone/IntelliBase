@@ -52,9 +52,9 @@
 | Модуль | Ответственность |
 |--------|-----------------|
 | `bot/__main__.py` | Точка входа: aiogram polling + HTTP `/notify` + alert drain |
-| `bot/handlers/` | commands, text, media, fsm (сценарий `/ask`), admin, feedback, handoff |
-| `bot/services/` | backend_client (вызовы бэкенда), streaming (SSE), alert_drain, error_handling |
-| `bot/keyboards/inline.py` | Inline-клавиатуры (в т.ч. выбор категории ПС) |
+| `bot/handlers/` | commands, text, media, fsm (сценарий `/ask`), admin, feedback, handoff, agent (`/agent` + HIL-кнопки) |
+| `bot/services/` | backend_client (вызовы бэкенда, в т.ч. `/agent/chat` и `/agent/resume`), streaming (SSE), alert_drain, error_handling |
+| `bot/keyboards/inline.py` | Inline-клавиатуры (выбор категории ПС, feedback, HIL approve/reject) |
 
 ### `scripts/` — утилиты индексации
 

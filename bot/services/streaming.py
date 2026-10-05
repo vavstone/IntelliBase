@@ -33,12 +33,13 @@ from bot.keyboards.inline import feedback_kb
 log = logging.getLogger(__name__)
 
 
-def _to_tg_markdown(text: str) -> str:
+def to_tg_markdown(text: str) -> str:
     """GitHub-Markdown от LLM → Telegram MarkdownV2 с эскейпом спецсимволов.
 
     LLM возвращает обычный Markdown (`**bold**`, `# header`, `- list`), а
     Telegram парсит свой MarkdownV2 (требует эскейпа `.`, `-`, `(`, `)`, ...).
     `telegramify-markdown` делает конвертацию и эскейп.
+    Используется и в стриминге чата, и в агентном сценарии (handlers/agent.py).
     """
     try:
         return telegramify_markdown.markdownify(text)
@@ -147,7 +148,7 @@ async def _send_final(
     src = format_sources(sources or [])
     if src:
         body = f"{body}\n{src}"
-    md = _to_tg_markdown(body)
+    md = to_tg_markdown(body)
     try:
         await message.bot.send_message(
             chat_id=message.chat.id,
@@ -201,7 +202,7 @@ async def _stream_via_edit_text(
         src = format_sources(sources)
         if src:
             body = f"{body}\n{src}"
-        md = _to_tg_markdown(body)
+        md = to_tg_markdown(body)
         try:
             await sent.edit_text(
                 md,

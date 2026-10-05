@@ -52,6 +52,30 @@ def topics_kb(
     return kb.as_markup()
 
 
+# HIL (human-in-the-loop): подтверждение опасного действия агента.
+# callback_data: hil:<approve|reject>:<thread_id>. Лимит Telegram — 64 байта;
+# thread_id бота — "tg<chat_id>-<hex8>" (~30 байт), влезает с запасом.
+HIL_CB_PREFIX = "hil"
+HIL_APPROVE = "approve"
+HIL_REJECT = "reject"
+HIL_VALUES = (HIL_APPROVE, HIL_REJECT)
+
+
+def hil_kb(thread_id: str) -> InlineKeyboardMarkup:
+    """Кнопки подтверждения опасного действия агента (/agent, HIL-пауза)."""
+    kb = InlineKeyboardBuilder()
+    kb.button(
+        text="✅ Отправить",
+        callback_data=f"{HIL_CB_PREFIX}:{HIL_APPROVE}:{thread_id}",
+    )
+    kb.button(
+        text="❌ Отменить",
+        callback_data=f"{HIL_CB_PREFIX}:{HIL_REJECT}:{thread_id}",
+    )
+    kb.adjust(2)
+    return kb.as_markup()
+
+
 def feedback_kb(message_id: str) -> InlineKeyboardMarkup:
     """Кнопки оценки ответа. callback_data: fb:<vote>:<msg_id> (42 байта)."""
     kb = InlineKeyboardBuilder()

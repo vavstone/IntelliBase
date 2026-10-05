@@ -21,7 +21,7 @@ uv run pytest tests/ -v
 |--------|------|---------------|----------------|
 | unit | `tests/unit/` | LLM-сервис (моки), PII, схемы, чанкинг, ingestion (чистые функции), reranker | в основном нет |
 | chat | `tests/chat/` | роуты, контекст, промпты, RAG-диалог, контракт репозитория | частично да |
-| bot | `tests/bot/` | админ, backend_client, FSM, streaming | нет (моки) |
+| bot | `tests/bot/` | админ, backend_client, FSM, streaming, HIL-кнопки агента (`test_agent_hil.py`) | нет (моки) |
 | admin | `tests/admin/` | админ-роуты, rag-репозиторий | частично |
 | moderation | `tests/moderation/` | сервис модерации | нет |
 | ratelimit | `tests/ratelimit/` | rate limiting | нет |

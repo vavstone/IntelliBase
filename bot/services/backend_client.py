@@ -14,6 +14,9 @@ from uuid import UUID
 
 import httpx
 
+# Таймаут для агентных вызовов: несколько итераций LLM + обращение к RAG.
+AGENT_TIMEOUT = 120.0
+
 
 class BackendClient:
     def __init__(
@@ -135,6 +138,30 @@ class BackendClient:
             headers={"X-Owner-External-Id": owner_external_id},
         )
         r.raise_for_status()
+
+    # --- agent (LangGraph + HIL) -----------------------------------------
+    # Агент делает несколько LLM-вызовов и обращений к RAG — 30-секундного
+    # дефолтного read-таймаута не хватает, поэтому здесь свой лимит.
+    async def agent_chat(self, message: str, thread_id: str) -> dict:
+        """POST /agent/chat — шаг агента. Ответ: {"status": "done"|"interrupted",
+        "answer", "tool_results", "interrupt"}."""
+        r = await self.http.post(
+            "/agent/chat",
+            json={"message": message, "thread_id": thread_id},
+            timeout=AGENT_TIMEOUT,
+        )
+        r.raise_for_status()
+        return r.json()
+
+    async def agent_resume(self, thread_id: str, decision: bool) -> dict:
+        """POST /agent/resume — решение человека по HIL-паузе того же thread'а."""
+        r = await self.http.post(
+            "/agent/resume",
+            json={"thread_id": thread_id, "decision": decision},
+            timeout=AGENT_TIMEOUT,
+        )
+        r.raise_for_status()
+        return r.json()
 
     # --- admin -----------------------------------------------------------
     def _admin_headers(self) -> dict[str, str]:
