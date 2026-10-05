@@ -25,7 +25,7 @@ from app.core.exceptions import (
     LLMUnsupportedCountryError
 )
 from app.routers import categories, chat, documents, health, models, rag, agent
-from app.observability.tracing import setup_tracing
+from app.observability.tracing import instrument_fastapi_app, setup_tracing
 from app.observability.logger import setup_logging
 
 # Настраиваем structlog
@@ -39,8 +39,6 @@ settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    setup_tracing(settings)
-
     # HTTP-клиент для локальной Ollama — БЕЗ прокси (внешний прокси
     # не достучится до localhost). Таймауты и limits — общие.
     _timeout = httpx.Timeout(settings.llm.request_timeout, connect=5.0)
@@ -295,6 +293,13 @@ app = FastAPI(
     description="FastAPI-сервис поиска корпоративной документации для LLM",
     lifespan=lifespan,
 )
+
+# Трейсинг регистрируется до старта приложения (не в lifespan): инструментер
+# FastAPI добавляет middleware, а Starlette запрещает это после старта. Тот же
+# момент, что у setup_logging выше, — до создания HTTP-клиентов и графа агента,
+# чтобы инструментеры успели обернуть конструкторы.
+_tracer_provider = setup_tracing(settings)
+instrument_fastapi_app(app, _tracer_provider, settings.phoenix_excluded_urls)
 
 app.add_middleware(
     CORSMiddleware,

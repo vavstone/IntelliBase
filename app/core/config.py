@@ -148,6 +148,10 @@ class Settings(BaseSettings):
     # при включении нужен поднятый сервис phoenix (compose.yaml / :6006).
     phoenix_enabled: bool = False
     phoenix_collector_endpoint: str = "http://localhost:6006/v1/traces"
+    # Пути, исключённые из трейсинга (через запятую). Healthcheck'и стучатся в
+    # /health и /ready каждые 30 с — без исключения они забивают список трейсов
+    # и вытесняют из него осмысленные запросы.
+    phoenix_excluded_urls: str = "/health,/ready,/openapi.json,/docs,/redoc"
 
     # Оценка качества (RAGAS) -------------------------------------------------
     # Судья и эмбеддинги для офлайн-оценки (scripts/run_eval.py,

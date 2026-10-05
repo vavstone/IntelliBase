@@ -99,8 +99,14 @@
 
 | Переменная | Дефолт | Назначение |
 |-----------|--------|------------|
-| `PHOENIX_ENABLED` | `false` | включить инструментирование LlamaIndex |
-| `PHOENIX_COLLECTOR_ENDPOINT` | `http://localhost:6006/v1/traces` | OTLP-эндпоинт Phoenix |
+| `PHOENIX_ENABLED` | `false` | включить инструментеры OpenAI, LangChain/LangGraph, LlamaIndex и FastAPI |
+| `PHOENIX_COLLECTOR_ENDPOINT` | `http://localhost:6006/v1/traces` | OTLP-эндпоинт Phoenix (HTTP; порт `:4317` — gRPC, протокол выводится из URL) |
+| `PHOENIX_EXCLUDED_URLS` | `/health,/ready,/openapi.json,/docs,/redoc` | пути, исключённые из трейсинга (healthcheck'и раз в 30 с вытесняют осмысленные трейсы) |
+
+В контейнере флаг включён в `compose.yaml` (`PHOENIX_ENABLED=true`, эндпоинт
+`http://phoenix:4317` — gRPC внутри сети compose): образ собирается с
+`--extra tracing`, а сервис `phoenix` поднимается в том же compose. Для запуска
+на хосте нужен `uv sync --extra tracing` и поднятый Phoenix на `:6006`.
 
 ## Агентный слой (`AGENT_*`, LangGraph)
 

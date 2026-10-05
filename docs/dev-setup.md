@@ -152,7 +152,11 @@ ollama pull gemma3:4b
 Интерфейс для просмотра трейсов LLM-вызовов доступен по адресу:
 [http://localhost:6006](http://localhost:6006)
 
-Работает только если в `.env` задан `PHOENIX_COLLECTOR_ENDPOINT=http://localhost:4317`.
+Трейсы пишутся, если задан `PHOENIX_ENABLED=true` (в `.env` на хосте; в контейнере
+флаг ставит `compose.yaml`) и установлена группа зависимостей `tracing`:
+`uv sync --extra tracing`. Эндпоинт — `PHOENIX_COLLECTOR_ENDPOINT`, по умолчанию
+`http://localhost:6006/v1/traces`; для контейнера compose подменяет его на gRPC
+`http://phoenix:4317`. Подробнее — [runbook.md](runbook.md), раздел «Трейсы в Phoenix».
 
 ### Production-сборка через Docker
 

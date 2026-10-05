@@ -29,7 +29,7 @@
 
 | Модуль | Ответственность |
 |--------|-----------------|
-| `app/main.py` | Точка входа: lifespan (клиенты, фоновые таски, инициализация RAG), middleware, обработчики ошибок |
+| `app/main.py` | Точка входа: трейсинг и инструментеры (на импорте), lifespan (клиенты, фоновые таски, инициализация RAG), middleware, обработчики ошибок |
 | `app/core/` | Конфигурация (pydantic-settings), доменные исключения, PII/security-паттерны |
 | `app/deps/providers.py` | DI-зависимости (Settings, LLM-клиенты, Session, Cache, RAG/Ingestion) |
 | `app/routers/` | Тонкие роутеры: chat (legacy), health, models, categories, documents, rag |
@@ -45,7 +45,7 @@
 | `app/moderation/` | Двухслойная модерация (regex → OpenAI API) |
 | `app/ratelimit/` | Rate limiting (Redis, per owner) |
 | `app/admin/` | Админ-API: статистика, рассылки, экспорт, handoff, алерты |
-| `app/observability/` | structlog, Phoenix tracing, PII redaction |
+| `app/observability/` | structlog, Phoenix tracing (инструментеры OpenAI, LangChain/LangGraph, LlamaIndex, FastAPI), PII redaction |
 
 ### `bot/` — Telegram-бот
 
@@ -126,7 +126,7 @@
 | Redis | 6379 | кэш LLM |
 | Qdrant | 6333 | векторный поиск |
 | Ollama | 11434 | локальные LLM (chat: `qwen2.5:3b`, RAG: `gemma3:4b`) |
-| Arize Phoenix | 6006 | трассировка LLM |
+| Arize Phoenix | 6006 (UI/HTTP), 4317 (gRPC) | трейсы LLM/RAG/агента (один трейс на HTTP-запрос) |
 
 ## Схема БД (PostgreSQL)
 

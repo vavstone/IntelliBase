@@ -65,12 +65,15 @@ dev = [
     "pyyaml>=6.0",
     "garak>=0.9.0",
 ]
-# Трейсинг LlamaIndex в Phoenix — опциональный runtime-путь (PHOENIX_ENABLED=false).
-# Ставится отдельно: `uv sync --extra tracing`. Без него сервис работает без спанов.
+# Трейсинг в Phoenix — опциональный runtime-путь (PHOENIX_ENABLED=false).
+# Ставится отдельно: `uv sync --extra tracing` (и в образ: Dockerfile качает
+# этот extra). Без него сервис работает без спанов RAG/агента.
 tracing = [
     "openinference-instrumentation-llama-index>=3,<4",
+    "openinference-instrumentation-langchain>=0.1,<1",
     "opentelemetry-sdk>=1.20",
     "opentelemetry-exporter-otlp>=1.20",
+    "opentelemetry-instrumentation-fastapi>=0.50b0",
 ]
 # Офлайн-оценка качества RAG (scripts/run_eval.py, generate_testset.py) — тяжёлая
 # группа, в проде не нужна. Ставится: `uv sync --extra eval`. langchain-community
@@ -93,8 +96,10 @@ dev = [
 ]
 tracing = [
     "openinference-instrumentation-llama-index>=3,<4",
+    "openinference-instrumentation-langchain>=0.1,<1",
     "opentelemetry-sdk>=1.20",
     "opentelemetry-exporter-otlp>=1.20",
+    "opentelemetry-instrumentation-fastapi>=0.50b0",
 ]
 eval = [
     "ragas>=0.4,<0.5",

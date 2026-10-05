@@ -27,7 +27,12 @@ services:
       - .env
     environment:
       REDIS_URL: redis://redis:6379/0
+      # Трейсинг в phoenix: gRPC-порт 4317 внутри сети compose (хост-эндпоинт
+      # из .env — HTTP http://localhost:6006/v1/traces). Флаг включён жёстко:
+      # в этой топологии phoenix поднимается всегда, а шаг 3 демо (трейсы LLM
+      # и RAG) должен работать и на чистом клоне, где .env.example = false.
       PHOENIX_COLLECTOR_ENDPOINT: http://phoenix:4317
+      PHOENIX_ENABLED: "true"
       DATABASE_URL: postgresql+asyncpg://chat:${POSTGRES_PASSWORD:-pswd}@db:5432/intellibase
       # Если вы хотите, чтобы приложение сразу использовало postgres-репозиторий:
       CHAT_REPOSITORY: postgres

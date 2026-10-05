@@ -257,12 +257,48 @@ RAG_DOCSTORE_PATH=var/rag_docstore_chunk1024.json \
 uv run python scripts/ingest.py data/kb
 ```
 
-### Трейсинг LlamaIndex в Phoenix
+### Трейсы в Phoenix (RAG, чат, агент)
+
+Phoenix поднимается вместе со стеком (`compose.yaml`, сервис `phoenix`), UI —
+[http://localhost:6006](http://localhost:6006) → проект **`diploma-fastapi`**.
+
+- **В контейнере** трейсинг включён всегда: `compose.yaml` задаёт
+  `PHOENIX_ENABLED=true` и gRPC-эндпоинт `http://phoenix:4317`, а образ собирается
+  с `--extra tracing` (инструментеры OpenAI, LangChain/LangGraph, LlamaIndex).
+- **На хосте** нужен `uv sync --extra tracing` и `PHOENIX_ENABLED=true` в `.env`
+  (HTTP-эндпоинт `http://localhost:6006/v1/traces`).
+- Имя проекта задано в коде (`app/observability/tracing.py`, `diploma-fastapi`).
+
+Один HTTP-запрос = один трейс: корень — серверный спан (`POST /rag/query`) от
+инструментера FastAPI, внутри — спаны библиотек. Без серверного спана они
+расходятся по отдельным трейсам (инструментеры LangChain/LlamaIndex намеренно не
+привязывают спаны к OTel-контексту), и один вопрос выглядит как 4–6 записей.
+
+| Операция | Спаны внутри трейса |
+|---|---|
+| `POST /rag/query`, RAG в `/chats` | `VectorIndexRetriever.aretrieve` (+ scores) → `HuggingFaceEmbedding.*`; `OllamaLLM.acomplete` → `ChatCompletion` |
+| `POST /chat`, `/chats`, модерация | `ChatCompletion` (OpenAI SDK) |
+| `POST /agent/chat`, `/agent/resume` | `LangGraph` → узлы (`call_model`, `execute_tool`, `prepare_send`, `confirm_and_send`) → `ChatOpenAI`; инструменты — `search_knowledge_base` с вложенными RAG-спанами |
+
+Служебные пробы (`/health`, `/ready`, `/docs`, `/openapi.json`) исключены из
+трейсинга переменной `PHOENIX_EXCLUDED_URLS`, спаны `http receive/send` не пишутся.
+
+Однострочная проверка, что спаны доехали (без UI):
+
+```bash
+curl -s "http://localhost:6006/v1/projects/UHJvamVjdDoy/spans?limit=5" | head -c 400
+```
+
+Отдельный демо-скрипт по RAG (без FastAPI), из хоста:
 
 ```bash
 PHOENIX_ENABLED=true uv run --extra tracing python scripts/trace_demo.py
-# → http://localhost:6006 → Traces (retriever scores, LLM prompt/usage)
 ```
+
+Если спанов нет: проверить, что `PHOENIX_ENABLED=true`, что в логе старта есть
+строка `Phoenix-трейсинг включён (OpenAI, LangChain, LlamaIndex)`, и что версия
+образа содержит `--extra tracing` (в старом образе инструментеров RAG/агента нет —
+будет только `ChatCompletion` от OpenAI-инструментера).
 
 ## Эксперимент Б6.5: мультиагент против single-agent
 
