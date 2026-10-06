@@ -53,6 +53,7 @@
 |--------|-----------------|
 | `bot/__main__.py` | Точка входа: aiogram polling + HTTP `/notify` + alert drain |
 | `bot/handlers/` | commands, text, media, fsm (сценарий `/ask`), admin, feedback, handoff, agent (`/agent` + HIL-кнопки) |
+| `bot/middlewares/` | `access.py` — гейт доступа: бот отвечает только пользователям из списка `bot_users` (плюс `BOT_ALLOWED_CHAT_IDS`) |
 | `bot/services/` | backend_client (вызовы бэкенда, в т.ч. `/agent/chat` и `/agent/resume`), streaming (SSE), alert_drain, error_handling |
 | `bot/keyboards/inline.py` | Inline-клавиатуры (выбор категории ПС, feedback, HIL approve/reject) |
 
@@ -140,8 +141,9 @@
 | `rate_limits` | Счётчики rate-limit |
 | `rag_queries` | Лог RAG-запросов (refusal_rate, пробелы в знаниях) |
 | `kb_categories` | Категории знаний = ПС |
+| `bot_users` | Разрешённые пользователи бота (chat_id + имя): доступ к боту и адресная книга агента |
 
-Миграции: Alembic, 8 версий в `migrations/versions/`. Переключение хранилища чата — `CHAT_REPOSITORY=json|postgres`.
+Миграции: Alembic, 9 версий в `migrations/versions/`. Переключение хранилища чата — `CHAT_REPOSITORY=json|postgres`.
 
 ## Ключевые настройки
 

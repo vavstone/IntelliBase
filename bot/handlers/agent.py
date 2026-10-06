@@ -7,8 +7,9 @@
 
 - `/agent <задача>` — один шаг агента в НОВОМ thread'е. Id генерится здесь
   (`tg<chat_id>-<hex8>`), чтобы повторные запуски и демо-прогоны не смешивались
-  в чекпоинтере. Получатель сообщения — сам чат с ботом: chat_id подставляется
-  в задачу, иначе модель вынуждена его выдумывать.
+  в чекпоинтере. Получатель сообщения — сам чат с ботом: его chat_id уходит
+  в `chat_id` запроса (и подсказкой в задаче, чтобы модель не тратила круг на
+  отказ инструмента). Решение о допустимых получателях принимает backend.
 - `hil:<approve|reject>:<thread_id>` — callback кнопок, resume того же thread'а.
 
 Текст от LLM прогоняется через `telegramify_markdown` (как в стриминге чата) и
@@ -17,6 +18,7 @@
 
 import asyncio
 import logging
+import re
 import uuid
 
 import httpx
@@ -57,8 +59,26 @@ HIL_HINT = (
     "\n"
     "Что делает агент: ищет данные в базе знаний, формирует сообщение и "
     "просит подтверждение перед отправкой. Без нажатия «Отправить» "
-    "сообщение не уходит."
+    "сообщение не уходит.\n"
+    "\n"
+    "Команду можно не писать: если в сообщении есть просьба отправить или "
+    "переслать, задача уходит агенту автоматически (в ответе будет пометка "
+    "«🤖 Обработано агентом»)."
 )
+
+# Просьба совершить действие в свободном тексте: «отправь отчёт Крутикову».
+# Нужна, чтобы человеку не приходилось знать про /agent: обычный чат отвечает
+# только по базе знаний и отправить ничего не может, а агент умеет и то, и другое.
+ACTION_INTENT_RE = re.compile(
+    r"\b(отправ\w*|пришл\w*|перешл\w*|скинь\w*|скин\w*|разошл\w*|вышл\w*|"
+    r"разосл\w*|отправить)\b",
+    re.IGNORECASE,
+)
+
+
+def looks_like_action(text: str) -> bool:
+    """Похоже ли сообщение на задачу агенту (а не на вопрос по базе знаний)."""
+    return bool(ACTION_INTENT_RE.search(text or ""))
 
 
 def new_thread_id(chat_id: int) -> str:
@@ -92,16 +112,47 @@ def _tool_lines(tool_results: list[dict], *, with_result: bool) -> list[str]:
     return lines
 
 
+def _format_recipients(preview: dict) -> str:
+    """«Иванов Пётр (111222333), Петров Пётр (444555666)» или один chat_id.
+
+    Понимает и старый одиночный формат (`recipient_title` + `chat_id`), и новый
+    список (`recipients`) — черновики в чекпоинтере могли остаться от прежней версии.
+    """
+    items = preview.get("recipients")
+    if not items:
+        title = str(preview.get("recipient_title") or "").strip()
+        chat_id = str(preview.get("chat_id") or "—")
+        return f"{title}, chat_id {chat_id}" if title else chat_id
+    return ", ".join(
+        f"{r.get('title')} ({r.get('chat_id')})" if r.get("title") else str(r.get("chat_id"))
+        for r in items
+    ) or "—"
+
+
 def render_interrupt(payload: dict, tool_results: list[dict]) -> str:
     """Превью черновика из HIL-паузы (кнопки вешает вызывающий)."""
     preview = payload.get("preview") or {}
-    draft = str(preview.get("text") or "").strip()
+    is_document = preview.get("kind") == "document"
+    draft = str(
+        preview.get("caption") if is_document else preview.get("text") or ""
+    ).strip()
     if len(draft) > PREVIEW_LIMIT:
         draft = draft[:PREVIEW_LIMIT] + "…"
+    # Получателей показываем именами (из списка пользователей), chat_id — рядом:
+    # подтверждать нужно по имени, иначе человек сверяет цифры, которые ни о чём
+    # не говорят и легко перепутать. Получателей может быть несколько
+    # («мне и Иванову») — тогда перечисляем всех: подтверждение одно на всех.
+    recipient = _format_recipients(preview)
+    if is_document:
+        head = (
+            f"📎 Черновик отправки файла (получатель: {recipient}):"
+            f"\n\nФайл: «{preview.get('file_name') or '—'}»"
+        )
+    else:
+        head = f"📨 Черновик сообщения (получатель: {recipient}):"
     blocks = [
         "⏸ Агент остановлен: нужно подтверждение",
-        f"📨 Черновик сообщения (chat_id: {preview.get('chat_id') or '—'}):"
-        f"\n\n«{draft}»",
+        f"{head}\n\n«{draft}»" if draft else head,
     ]
     tools = _tool_lines(tool_results, with_result=True)
     if tools:
@@ -157,28 +208,31 @@ async def _edit(cb: CallbackQuery, text: str) -> None:
             log.debug("agent edit_text failed: %s", exc2)
 
 
-@router.message(Command("agent"))
-async def cmd_agent(
-    message: Message, command: CommandObject, backend: BackendClient
+async def run_agent_task(
+    message: Message,
+    task: str,
+    backend: BackendClient,
+    *,
+    auto_routed: bool = False,
 ) -> None:
-    task = (command.args or "").strip()
-    if not task:
-        # parse_mode=None: бот по умолчанию парсит HTML, а в подсказке есть
-        # «<задача>» — Telegram отверг бы сообщение (Unsupported start tag).
-        await message.answer(HIL_HINT, parse_mode=None)
-        return
+    """Один шаг агента: пауза с кнопками либо финальный ответ.
 
+    Используется и командой `/agent`, и автомаршрутом из свободного текста
+    (`bot/handlers/text.py`): человек пишет «отправь документ Крутикову» без
+    команды, а задача всё равно попадает агенту. `auto_routed=True` помечает
+    такой ответ, чтобы было видно, почему он отличается от обычного ответа чата.
+    """
     thread_id = new_thread_id(message.chat.id)
-    # Получатель — этот же чат: без подсказки модель выдумывает chat_id,
-    # и реальная отправка после подтверждения ушла бы «в никуда».
-    prompt = f"{task}\n\n(Telegram chat_id получателя: {message.chat.id})"
-
+    # Задача уходит как есть: служебную подсказку о чате-инициаторе добавляет
+    # backend (app/routers/agent.py) — она нужна любому клиенту, не только боту.
+    # chat_id передаём отдельным полем: по нему backend решает, кому можно
+    # отправлять, и подставляет его в подсказку для «отправь мне».
     stop = asyncio.Event()
     typing_task = asyncio.create_task(
         typing_until(message.bot, message.chat.id, stop)
     )
     try:
-        result = await backend.agent_chat(prompt, thread_id)
+        result = await backend.agent_chat(task, thread_id, message.chat.id)
     except Exception as exc:
         await handle_backend_error(message, exc)
         return
@@ -196,7 +250,23 @@ async def cmd_agent(
             reply_markup=hil_kb(thread_id),
         )
         return
-    await _answer(message, render_result(result))
+    answer = render_result(result)
+    if auto_routed:
+        answer = f"🤖 Обработано агентом\n\n{answer}"
+    await _answer(message, answer)
+
+
+@router.message(Command("agent"))
+async def cmd_agent(
+    message: Message, command: CommandObject, backend: BackendClient
+) -> None:
+    task = (command.args or "").strip()
+    if not task:
+        # parse_mode=None: бот по умолчанию парсит HTML, а в подсказке есть
+        # «<задача>» — Telegram отверг бы сообщение (Unsupported start tag).
+        await message.answer(HIL_HINT, parse_mode=None)
+        return
+    await run_agent_task(message, task, backend)
 
 
 @router.callback_query(F.data.startswith(f"{HIL_CB_PREFIX}:"))
@@ -225,8 +295,13 @@ async def on_hil_decision(cb: CallbackQuery, backend: BackendClient) -> None:
     )
     await _edit(cb, pending)
 
+    # Инициатор = чат, в котором показаны кнопки. Если сообщение недоступно
+    # (старое/удалённое), берём id пользователя: в приватном чате это тот же id.
+    initiator_chat_id = (
+        cb.message.chat.id if cb.message is not None else cb.from_user.id
+    )
     try:
-        result = await backend.agent_resume(thread_id, approved)
+        result = await backend.agent_resume(thread_id, approved, initiator_chat_id)
     except httpx.HTTPStatusError as exc:
         log.warning("agent resume failed (%s): %s", thread_id, exc)
         await _edit(cb, "⚠️ Подтверждение уже неактуально — запустите /agent заново.")

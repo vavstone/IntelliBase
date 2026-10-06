@@ -115,6 +115,34 @@
 | `AGENT_CHECKPOINTER` | `sqlite` | хранилище чек-пойнтов: `memory` / `sqlite` / `postgres` |
 | `AGENT_CHECKPOINTER_POSTGRES_URI` | `postgresql://chat:pswd@localhost:5432/intellibase` | URI для `AsyncPostgresSaver` (psycopg v3, НЕ asyncpg) |
 | `AGENT_SQLITE_PATH` | `var/agent_checkpoints.sqlite` | файл SQLite-чекпоинтера при `AGENT_CHECKPOINTER=sqlite` |
+| `BOT_ALLOWED_CHAT_IDS` | — | bootstrap-список разрешённых пользователей бота (id через запятую) |
+
+## Кто имеет доступ к боту (`bot_users`)
+
+Корпоративный бот закрыт: список тех, кому он отвечает, лежит в БД (таблица
+`bot_users`, админ-API `/chats/admin/bot-users`). **Пустая таблица = бот не отвечает
+никому**; исключение — id из `BOT_ALLOWED_CHAT_IDS` (bootstrap для чистого клона и
+аварийный доступ, если список в БД испорчен).
+
+Один и тот же список решает две задачи:
+
+- **кому бот отвечает** — гейт на входе (`bot/middlewares/access.py` → `GET /access/{chat_id}
+  `): посторонний не доходит ни до `/ask`, ни до `/agent`; в отказе виден его id,
+  чтобы передать администратору;
+- **кому агент может отправлять** — получателя выбирает не модель: chat_id из tool_call
+  сверяется с `bot_users` ∪ чат-инициатор запроса; чужой адрес приводит не к отправке,
+  а к ошибке инструмента. Имя из `title` уходит в превью подтверждения, и по нему же
+  работает «отправь Иванову» (инструмент `find_recipient`).
+
+Чат-инициатор разрешён всегда и от БД не зависит — «отправь мне» переживает
+недоступность Postgres.
+
+## Внутренний канал app → бот (`BOT_URL`, `INTERNAL_TOKEN`)
+
+| Переменная | Дефолт | Назначение |
+|-----------|--------|------------|
+| `BOT_URL` | `http://bot:9000` | HTTP-API бота для `POST /notify` (handoff, рассылки, отправка агентом); в контейнере compose задаётся как `http://bot:9000`, в `.env` — `http://localhost:9000` для запуска на хосте |
+| `INTERNAL_TOKEN` | `change-me-internal` | общий секрет app ↔ bot (`X-Internal-Token`) |
 
 ## Бот (`bot/config.py`, префикс `BOT_`)
 

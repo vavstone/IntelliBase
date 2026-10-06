@@ -1,6 +1,7 @@
 """Tests for admin API endpoints: /stats, /users, /broadcast, /export, /handoff."""
 
 import pytest
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi import FastAPI
@@ -299,3 +300,167 @@ async def test_stats_without_redis_reports_zero_cache():
 
     assert resp.status_code == 200
     assert resp.json()["cache_hit_rate"] == 0.0
+
+
+# ── разрешённые пользователи бота (allowlist) ────────────────────────────
+
+
+@pytest.mark.anyio
+async def test_list_bot_users_requires_token():
+    app = _build_app()
+    client = TestClient(app)
+    with patch("app.admin.routes.get_settings", return_value=_mock_settings()):
+        resp = client.get("/chats/admin/bot-users")
+    assert resp.status_code == 403
+
+
+@pytest.mark.anyio
+async def test_list_bot_users_returns_items():
+    app = _build_app()
+    rows = [
+        {
+            "chat_id": "111",
+            "title": "Иванов Пётр",
+            "is_active": True,
+            "created_at": None,
+            "created_by": "token…",
+        }
+    ]
+    with (
+        patch("app.admin.routes.get_settings", return_value=_mock_settings()),
+        patch("app.admin.routes.bot_users.list_users", AsyncMock(return_value=rows)),
+    ):
+        client = TestClient(app)
+        resp = client.get("/chats/admin/bot-users", headers=_auth_headers())
+
+    assert resp.status_code == 200
+    assert resp.json()[0]["chat_id"] == "111"
+    assert resp.json()[0]["title"] == "Иванов Пётр"
+
+
+@pytest.mark.anyio
+async def test_add_bot_user_writes_author():
+    """Доступ выдаётся с аудитом: в created_by попадает токен инициатора."""
+    app = _build_app()
+    added = AsyncMock(
+        return_value={
+            "chat_id": "222",
+            "title": "Петров",
+            "is_active": True,
+            "created_at": None,
+            "created_by": "test-admin-secre…",
+        }
+    )
+    with (
+        patch("app.admin.routes.get_settings", return_value=_mock_settings()),
+        patch("app.admin.routes.bot_users.add_user", added),
+    ):
+        client = TestClient(app)
+        resp = client.post(
+            "/chats/admin/bot-users",
+            headers=_auth_headers(),
+            json={"chat_id": "222", "title": "Петров"},
+        )
+
+    assert resp.status_code == 200
+    assert resp.json()["chat_id"] == "222"
+    kwargs = added.call_args.kwargs
+    assert kwargs["chat_id"] == "222"
+    assert kwargs["title"] == "Петров"
+    assert kwargs["created_by"]  # аудит: кто выдал доступ
+
+
+@pytest.mark.anyio
+async def test_add_bot_user_validates_body():
+    app = _build_app()
+    with patch("app.admin.routes.get_settings", return_value=_mock_settings()):
+        client = TestClient(app)
+        resp = client.post(
+            "/chats/admin/bot-users",
+            headers=_auth_headers(),
+            json={"chat_id": "", "title": ""},
+        )
+    assert resp.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_remove_bot_user_deactivates():
+    app = _build_app()
+    deactivated = AsyncMock(return_value=True)
+    with (
+        patch("app.admin.routes.get_settings", return_value=_mock_settings()),
+        patch("app.admin.routes.bot_users.deactivate_user", deactivated),
+    ):
+        client = TestClient(app)
+        resp = client.delete("/chats/admin/bot-users/333", headers=_auth_headers())
+
+    assert resp.status_code == 200
+    assert resp.json() == {"status": "ok", "deactivated": True}
+    assert deactivated.call_args.args[1] == "333"
+
+
+# ── регрессия: затенение имени в модуле роутов ───────────────────────────
+
+
+class _FakeRows:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def all(self):
+        return self._rows
+
+
+class _FakeSession:
+    def __init__(self, rows):
+        self._rows = rows
+
+    async def execute(self, *args, **kwargs):
+        return _FakeRows(self._rows)
+
+
+class _FakeSessionCtx:
+    def __init__(self, rows):
+        self._rows = rows
+
+    async def __aenter__(self):
+        return _FakeSession(self._rows)
+
+    async def __aexit__(self, *exc):
+        return False
+
+
+@pytest.mark.anyio
+async def test_list_bot_users_goes_through_service():
+    """Сквозной путь роут → сервис → БД (БД фейковая, Postgres не нужен).
+
+    Регрессия: в `app/admin/routes.py` есть обработчик `list_users`
+    (GET /chats/admin/users), одноимённый с функцией сервиса — импорт по имени
+    затенялся и `GET /bot-users` падал с 500. Поэтому вызовы идут через модуль
+    `bot_users`.
+    """
+    rows = [
+        SimpleNamespace(
+            chat_id="111222333",
+            title="Иванов Пётр, руководитель отдела",
+            is_active=True,
+            created_at=None,
+            created_by="token…",
+        )
+    ]
+    app = _build_app()
+    app.state.session_factory = lambda: _FakeSessionCtx(rows)
+
+    with patch("app.admin.routes.get_settings", return_value=_mock_settings()):
+        client = TestClient(app)
+        resp = client.get("/chats/admin/bot-users", headers=_auth_headers())
+
+    assert resp.status_code == 200
+    assert resp.json() == [
+        {
+            "chat_id": "111222333",
+            "title": "Иванов Пётр, руководитель отдела",
+            "is_active": True,
+            "created_at": None,
+            "created_by": "token…",
+        }
+    ]

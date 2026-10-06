@@ -149,10 +149,15 @@ async def test_cmd_agent_interrupt_shows_preview_and_buttons():
     )
 
     backend.agent_chat.assert_awaited_once()
-    sent_task, thread_id = backend.agent_chat.call_args.args
-    assert "отправь уведомление" in sent_task
-    # chat_id получателя подставляется ботом — модель его не выдумывает
-    assert "12345" in sent_task
+    sent_task, thread_id, initiator_chat_id = backend.agent_chat.call_args.args
+    # Бот передаёт задачу как есть: служебную подсказку о чате-инициаторе
+    # добавляет backend, поэтому в тексте её быть не должно (иначе она
+    # задвоится и снова начнёт объявлять получателем чат инициатора).
+    assert sent_task == "отправь уведомление"
+    assert "chat_id" not in sent_task
+    # ...а сам chat_id уходит отдельным полем: по нему backend решает, кому
+    # можно отправлять, и подставляет его в подсказку для «отправь мне»
+    assert initiator_chat_id == 12345
 
     text = _plain(msg.answer.call_args.args[0])
     assert "нужно подтверждение" in text
@@ -219,7 +224,7 @@ async def test_approve_resumes_with_true():
 
     await on_hil_decision(cb, backend=backend)
 
-    backend.agent_resume.assert_awaited_once_with("tg1-abcd1234", True)
+    backend.agent_resume.assert_awaited_once_with("tg1-abcd1234", True, 12345)
     text = cb.message.edit_text.call_args.args[0]
     assert text.startswith("✅ Подтверждено")
     assert "сообщение отправлено" in text
@@ -248,7 +253,7 @@ async def test_reject_resumes_with_false():
 
     await on_hil_decision(cb, backend=backend)
 
-    backend.agent_resume.assert_awaited_once_with("tg1-abcd1234", False)
+    backend.agent_resume.assert_awaited_once_with("tg1-abcd1234", False, 12345)
     text = cb.message.edit_text.call_args.args[0]
     assert text.startswith("❌ Отменено")
     assert "отправка отменена пользователем" in text

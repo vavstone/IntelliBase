@@ -16,18 +16,63 @@ from langchain_core.messages import HumanMessage
 from langgraph.types import Command
 from pydantic import BaseModel
 
-from app.deps.providers import AgentGraphDep
+from app.core.config import get_settings
+from app.deps.providers import AgentGraphDep, SessionFactoryDep
+from app.services.bot_users import load_active_users, resolve_allowed
 
 router = APIRouter(prefix="/agent", tags=["agent"])
 
 
-def _config(thread_id: str, user_role: str = "write-with-approve") -> dict:
-    return {"configurable": {"thread_id": thread_id, "user_role": user_role}}
+async def _allowed_recipients(session_factory) -> dict[str, str]:
+    """{chat_id: имя} — кому разрешена отправка: пользователи бота из БД + bootstrap.
+
+    Считается на каждый запрос (и на resume тоже): отозванный доступ перестаёт
+    действовать сразу, без перезапуска сервиса.
+    """
+    rows = await load_active_users(session_factory)
+    return resolve_allowed(rows, get_settings().bot_allowed_chat_ids)
 
 
-def _initial_state(message: str) -> dict:
+def _config(
+    thread_id: str,
+    user_role: str = "write-with-approve",
+    delivery_chat_id: str | None = None,
+    allowed_recipients: dict[str, str] | None = None,
+) -> dict:
+    """Конфиг графа.
+
+    `delivery_chat_id` — инициатор запроса, `allowed_recipients` — список
+    пользователей бота с именами. Оба передаются в config, а не в тексте задачи:
+    адресата выбирает сервер, не LLM, иначе любой пользователь бота мог бы
+    попросить отправить данные на указанный им chat_id.
+    """
     return {
-        "messages": [HumanMessage(message)],
+        "configurable": {
+            "thread_id": thread_id,
+            "user_role": user_role,
+            "delivery_chat_id": delivery_chat_id,
+            "allowed_recipients": allowed_recipients or {},
+        }
+    }
+
+
+def _initial_state(message: str, initiator_chat_id: str | None = None) -> dict:
+    """Начальное состояние графа.
+
+    Служебная подсказка о чате-инициаторе добавляется здесь, а не в боте: она
+    нужна любому клиенту (бот, curl, будущий UI), чтобы модель понимала «отправь
+    мне» и при этом не выдумывала chat_id. Получателем этот чат при этом не
+    объявляется — иначе задача «отправь Иванову» получает двух разных адресатов.
+    """
+    text = message
+    if initiator_chat_id:
+        text = (
+            f"{message}\n\n"
+            f"(Служебно: задача пришла из чата {initiator_chat_id}. "
+            f"Нужного получателя ищи через find_recipient.)"
+        )
+    return {
+        "messages": [HumanMessage(text)],
         "iteration_count": 0,
         "tool_results": [],
         "draft": None,
@@ -38,6 +83,9 @@ def _initial_state(message: str) -> dict:
 class AgentChatRequest(BaseModel):
     message: str
     thread_id: str = "default"
+    # Чат, из которого пришёл запрос (Telegram chat_id). Он же — разрешённый
+    # получатель отправки: без него инструмент отправки отклонит любой адрес.
+    chat_id: str | None = None
 
 
 class AgentChatResponse(BaseModel):
@@ -67,25 +115,42 @@ def _to_response(result: dict, thread_id: str) -> AgentChatResponse:
 
 
 @router.post("/chat", response_model=AgentChatResponse)
-async def agent_chat(req: AgentChatRequest, graph: AgentGraphDep) -> AgentChatResponse:
+async def agent_chat(
+    req: AgentChatRequest, graph: AgentGraphDep, session_factory: SessionFactoryDep
+) -> AgentChatResponse:
     if graph is None:
         raise HTTPException(status_code=503, detail="агентный граф не инициализирован")
-    result = await graph.ainvoke(_initial_state(req.message), _config(req.thread_id))
+    config = _config(
+        req.thread_id,
+        delivery_chat_id=req.chat_id,
+        allowed_recipients=await _allowed_recipients(session_factory),
+    )
+    result = await graph.ainvoke(
+        _initial_state(req.message, req.chat_id), config
+    )
     return _to_response(result, req.thread_id)
 
 
 class AgentResumeRequest(BaseModel):
     thread_id: str
     decision: bool | str = True
+    # Тот же инициатор, что и в /agent/chat: узел отправки перезапускается на
+    # resume с конфигом текущего вызова, поэтому chat_id нужен и здесь.
+    chat_id: str | None = None
 
 
 @router.post("/resume", response_model=AgentChatResponse)
 async def agent_resume(
-    req: AgentResumeRequest, graph: AgentGraphDep
+    req: AgentResumeRequest, graph: AgentGraphDep, session_factory: SessionFactoryDep
 ) -> AgentChatResponse:
     if graph is None:
         raise HTTPException(status_code=503, detail="агентный граф не инициализирован")
-    result = await graph.ainvoke(Command(resume=req.decision), _config(req.thread_id))
+    config = _config(
+        req.thread_id,
+        delivery_chat_id=req.chat_id,
+        allowed_recipients=await _allowed_recipients(session_factory),
+    )
+    result = await graph.ainvoke(Command(resume=req.decision), config)
     return _to_response(result, req.thread_id)
 
 
@@ -93,6 +158,7 @@ class AgentStreamRequest(BaseModel):
     thread_id: str
     input: dict | None = None  # старт: {"messages": [...]}
     resume: bool | str | None = None  # возобновление после interrupt
+    chat_id: str | None = None  # инициатор запроса = разрешённый получатель
 
 
 def _format_event(stream_type: str, payload: Any) -> dict | None:
@@ -111,7 +177,7 @@ def _format_event(stream_type: str, payload: Any) -> dict | None:
 
 @router.post("/stream")
 async def agent_stream(
-    req: AgentStreamRequest, graph: AgentGraphDep
+    req: AgentStreamRequest, graph: AgentGraphDep, session_factory: SessionFactoryDep
 ) -> StreamingResponse:
     if graph is None:
         raise HTTPException(status_code=503, detail="агентный граф не инициализирован")
@@ -129,7 +195,11 @@ async def agent_stream(
     else:
         raise HTTPException(status_code=422, detail="нужен input или resume")
 
-    config = _config(req.thread_id)
+    config = _config(
+        req.thread_id,
+        delivery_chat_id=req.chat_id,
+        allowed_recipients=await _allowed_recipients(session_factory),
+    )
 
     async def event_source() -> AsyncIterator[str]:
         async for stream_type, payload in graph.astream(

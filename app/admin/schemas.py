@@ -87,3 +87,22 @@ class AlertOut(BaseModel):
     id: int
     kind: str
     payload: dict
+
+
+class BotUserIn(BaseModel):
+    """Разрешённый пользователь бота: кому бот отвечает и кому можно отправлять.
+
+    `title` — человекочитаемое имя, по которому получателя находит инструмент
+    («отправь Иванову») и которое видит человек в превью перед подтверждением.
+    """
+
+    chat_id: str = Field(min_length=1, max_length=32)
+    title: str = Field(min_length=1, max_length=255)
+
+
+class BotUserOut(BaseModel):
+    chat_id: str
+    title: str
+    is_active: bool = True
+    created_at: datetime | None = None
+    created_by: str | None = None

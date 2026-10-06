@@ -89,6 +89,9 @@ metrics: ## Метрики для демо: p95, cache hit rate, последн�
 thresholds: ## Пороги качества по последнему прогону RAGAS (гейт eval/check_thresholds.py)
 	$(UV) run python eval/check_thresholds.py
 
+users: ## Доступ к боту: make users ARGS='list' | ARGS='add 123456789 "Иванов Пётр"'
+	$(UV) run python scripts/bot_users.py $(ARGS)
+
 shell: ## Bash внутри контейнера app
 	$(COMPOSE) exec app bash
 

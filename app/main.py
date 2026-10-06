@@ -24,7 +24,7 @@ from app.core.exceptions import (
     LLMTimeoutError,
     LLMUnsupportedCountryError
 )
-from app.routers import categories, chat, documents, health, models, rag, agent
+from app.routers import access, categories, chat, documents, health, models, rag, agent
 from app.observability.tracing import instrument_fastapi_app, setup_tracing
 from app.observability.logger import setup_logging
 
@@ -201,7 +201,13 @@ async def lifespan(app: FastAPI):
     try:
         from langchain_openai import ChatOpenAI
 
-        from app.tools.graph_tools import TOOLS
+        from app.services.corpus_files import resolve_document_for_agent
+        from app.services.notifier import deliver_document_to_bot, deliver_to_bot
+        from app.tools.graph_tools import (
+            TOOLS,
+            make_find_recipient_tool,
+            make_list_documents_tool,
+        )
         from app.services.agent_persistent import agent_lifespan
 
         agent_model = ChatOpenAI(
@@ -211,10 +217,55 @@ async def lifespan(app: FastAPI):
             temperature=0,
         )
 
-        async def _send_telegram_impl(draft: dict) -> None:
-            print(f"[TELEGRAM → {draft.get('chat_id')}] {draft.get('text')}")
+        async def _send_telegram_impl(draft: dict) -> str:
+            """Реальная доставка через бота: текст (`POST /notify`) или файл
+            (`POST /notify/document`) — по полю `kind` в черновике.
 
-        agent_tools = TOOLS
+            Получателей может быть несколько («отправь мне и Иванову») —
+            доставляем каждому и возвращаем честный итог: узел отправки по
+            исключению пометит операцию неуспешной только если не дошло никому.
+            При частичной неудаче сообщение остаётся в логе приложения (запасной
+            канал, как было до подключения бота).
+            """
+            token = settings.internal_token.get_secret_value()
+            is_document = draft.get("kind") == "document"
+            delivered: list[str] = []
+            failed: list[str] = []
+            for recipient in draft.get("recipients") or []:
+                chat_id = str(recipient.get("chat_id") or "")
+                name = recipient.get("title") or chat_id
+                single = {**draft, "chat_id": chat_id}
+                try:
+                    if is_document:
+                        await deliver_document_to_bot(single, settings.bot_url, token)
+                    else:
+                        await deliver_to_bot(single, settings.bot_url, token)
+                    delivered.append(name)
+                except RuntimeError as exc:
+                    logger.warning("Доставка в Telegram не удалась (%s): %s", chat_id, exc)
+                    failed.append(name)
+                    if is_document:
+                        print(f"[TELEGRAM DOC → {chat_id}] {draft.get('file_name')}")
+                    else:
+                        print(f"[TELEGRAM → {chat_id}] {draft.get('text')}")
+
+            if not delivered:
+                raise RuntimeError("ни одному получателю доставить не удалось")
+            what = f"документ «{draft.get('file_name')}»" if is_document else "сообщение"
+            outcome = f"{what} отправлен(о): {', '.join(delivered)}"
+            if failed:
+                outcome += f"; не удалось: {', '.join(failed)}"
+            logger.info("Доставлено в Telegram: %s", outcome)
+            return outcome
+
+        # find_recipient создаётся здесь: ему нужна сессия БД, чтобы искать людей
+        # по имени в списке пользователей бота; list_documents — корень корпуса,
+        # чтобы называть документы точно (по файлам, а не по выборке чанков).
+        agent_tools = [
+            *TOOLS,
+            make_find_recipient_tool(app.state.session_factory),
+            make_list_documents_tool(settings),
+        ]
 
         app.state.agent_graph = await agent_stack.enter_async_context(
             agent_lifespan(
@@ -222,6 +273,7 @@ async def lifespan(app: FastAPI):
                 agent_model,
                 agent_tools,
                 _send_telegram_impl,
+                resolve_document=resolve_document_for_agent(settings),
                 sqlite_path=settings.agent_sqlite_path,
                 postgres_url=settings.agent_checkpointer_postgres_uri,
             )
@@ -432,3 +484,4 @@ app.include_router(health.router)
 app.include_router(rag.router)
 app.include_router(documents.router)
 app.include_router(agent.router)
+app.include_router(access.router)

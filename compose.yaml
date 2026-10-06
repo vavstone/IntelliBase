@@ -27,6 +27,10 @@ services:
       - .env
     environment:
       REDIS_URL: redis://redis:6379/0
+      # Обратный канал app → бот (`POST /notify`: handoff, рассылки, отправка
+      # агентом после HIL). В .env стоит localhost — это адрес для запуска на
+      # хосте; внутри сети compose бот доступен по имени сервиса.
+      BOT_URL: http://bot:9000
       # Трейсинг в phoenix: gRPC-порт 4317 внутри сети compose (хост-эндпоинт
       # из .env — HTTP http://localhost:6006/v1/traces). Флаг включён жёстко:
       # в этой топологии phoenix поднимается всегда, а шаг 3 демо (трейсы LLM

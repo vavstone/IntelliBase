@@ -23,6 +23,8 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request
 
 from app.admin.repository import AdminRepository
 from app.admin.schemas import (
+    BotUserIn,
+    BotUserOut,
     AlertOut,
     BroadcastIn,
     BroadcastResult,
@@ -34,6 +36,7 @@ from app.admin.schemas import (
 from app.core.config import get_settings
 from app.deps.providers import SessionFactoryDep, SettingsDep
 from app.services.alerter import ack_alert, fetch_pending_alerts, fire_alert
+from app.services import bot_users
 from app.services.llm import read_cache_counters
 from app.services.broadcaster import (
     broadcast_sync,
@@ -206,3 +209,59 @@ async def list_alerts(session_factory: SessionFactoryDep) -> list[AlertOut]:
 async def ack(alert_id: int, session_factory: SessionFactoryDep) -> dict:
     await ack_alert(session_factory, alert_id)
     return {"status": "ok"}
+
+
+# ── разрешённые пользователи бота ────────────────────────────────────────
+# Один список на два вопроса: кому бот отвечает и кому агент может отправлять
+# сообщения. В БД, а не в .env: выдать доступ — админ-операция, а не деплой.
+
+
+@router.get(
+    "/bot-users",
+    dependencies=[Depends(require_admin)],
+    response_model=list[BotUserOut],
+)
+async def list_bot_users(
+    session_factory: SessionFactoryDep,
+    active_only: bool = False,
+) -> list[BotUserOut]:
+    items = await bot_users.list_users(session_factory, active_only=active_only)
+    return [BotUserOut(**item) for item in items]
+
+
+@router.post(
+    "/bot-users",
+    dependencies=[Depends(require_admin)],
+    response_model=BotUserOut,
+)
+async def add_bot_user(
+    body: BotUserIn,
+    session_factory: SessionFactoryDep,
+    x_admin_token: Annotated[str | None, Header(alias="X-Admin-Token")] = None,
+) -> BotUserOut:
+    """Выдать доступ (upsert по chat_id — повторное добавление реактивирует).
+
+    `X-Admin-Token` читается ещё раз, чтобы записать автора изменения: аудит,
+    кто именно выдал доступ.
+    """
+    item = await bot_users.add_user(
+        session_factory,
+        chat_id=body.chat_id,
+        title=body.title,
+        created_by=(x_admin_token[:16] + "…") if x_admin_token else None,
+    )
+    log.info(
+        "Доступ выдан: chat_id=%s (%s)", item["chat_id"], item["title"]
+    )
+    return BotUserOut(**item)
+
+
+@router.delete(
+    "/bot-users/{chat_id}",
+    dependencies=[Depends(require_admin)],
+)
+async def remove_bot_user(chat_id: str, session_factory: SessionFactoryDep) -> dict:
+    """Отозвать доступ (мягко: запись остаётся в истории)."""
+    deactivated = await bot_users.deactivate_user(session_factory, chat_id)
+    log.info("Доступ отозван: chat_id=%s (%s)", chat_id, deactivated)
+    return {"status": "ok", "deactivated": deactivated}

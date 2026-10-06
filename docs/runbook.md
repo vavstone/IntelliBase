@@ -68,6 +68,23 @@ head -c 20 entrypoint.sh | od -c   # ожидается "#!/bin/sh\n", без \r
 git config --get core.autocrlf     # true — не страшно, .gitattributes перекрывает
 ```
 
+### Если команда «висит», а сервис жив (Windows + Docker Desktop)
+
+Запрос к `localhost:<порт>` не отвечает до таймаута, при этом `127.0.0.1:<порт>`
+работает и контейнер healthy. Причина — IPv6-проброс портов Docker Desktop:
+`localhost` резолвится в `::1`, а этот путь идёт через `wslrelay.exe`, который
+изредка залипает (несколько минут). Проверка и лечение:
+
+```bash
+curl -m 5 -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8000/health   # 200
+curl -m 5 -o /dev/null -w "%{http_code}\n" http://localhost:8000/health   # 000/виснет
+```
+
+Само отпускает за 1–2 минуты; радикально — рестарт Docker Desktop
+(`wsl --shutdown`, затем запуск Docker). В `.env` этого репозитория адреса
+docker-сервисов указаны через `127.0.0.1` именно поэтому; `scripts/smoke.py`
+по умолчанию тоже обращается к IPv4.
+
 ## Запуск и остановка
 
 ### Docker-инфраструктура (Redis, Postgres, Qdrant, Phoenix)
@@ -299,6 +316,109 @@ PHOENIX_ENABLED=true uv run --extra tracing python scripts/trace_demo.py
 строка `Phoenix-трейсинг включён (OpenAI, LangChain, LlamaIndex)`, и что версия
 образа содержит `--extra tracing` (в старом образе инструментеров RAG/агента нет —
 будет только `ChatCompletion` от OpenAI-инструментера).
+
+## Доступ к боту: кому выдавать и как отзывать
+
+Бот закрыт: список пользователей — в таблице `bot_users`, управление через админ-API
+(под `X-Admin-Token`). Пустая таблица = бот не отвечает никому; `BOT_ALLOWED_CHAT_IDS`
+в `.env` — bootstrap для чистого клона и аварийный доступ.
+
+```bash
+# Основной путь — скрипт (адрес бэкенда из BACKEND_URL, токен из ADMIN_TOKEN)
+uv run python scripts/bot_users.py list            # кто имеет доступ
+uv run python scripts/bot_users.py list --all      # включая отозванные
+uv run python scripts/bot_users.py add 111222333 "Иванов Пётр, руководитель отдела"
+uv run python scripts/bot_users.py remove 111222333
+uv run python scripts/bot_users.py check 111222333 # что ответит бот (GET /access)
+
+# То же через Makefile
+make users ARGS='list'
+make users ARGS='add 111222333 "Иванов Пётр, руководитель отдела"'
+```
+
+Тот же API напрямую (если нужен curl):
+
+```bash
+ADMIN='change-me-admin'   # значение ADMIN_TOKEN из .env
+
+curl -s http://127.0.0.1:8000/chats/admin/bot-users -H "X-Admin-Token: $ADMIN"
+
+curl -s -X POST http://127.0.0.1:8000/chats/admin/bot-users \
+  -H "X-Admin-Token: $ADMIN" -H 'Content-Type: application/json' \
+  -d '{"chat_id":"111222333","title":"Иванов Пётр, руководитель отдела"}'
+
+curl -s -X DELETE http://127.0.0.1:8000/chats/admin/bot-users/111222333 \
+  -H "X-Admin-Token: $ADMIN"
+```
+
+Список хранится в Postgres (таблица `bot_users`, том `postgres_data`), поэтому
+переживает `make down`/`make up`; `make clean` (удаление томов) его стирает —
+тогда доступ снова только у id из `BOT_ALLOWED_CHAT_IDS`.
+
+Прямой SQL на случай, когда сервис лежит:
+
+```bash
+docker compose exec db psql -U chat -d intellibase -c "
+  INSERT INTO bot_users (chat_id, title, created_by)
+  VALUES ('111222333', 'Иванов Пётр', 'manual')
+  ON CONFLICT (chat_id) DO UPDATE
+    SET title = EXCLUDED.title, is_active = TRUE;"
+```
+
+Проверка гейта без Telegram (тот же вызов, что делает бот на каждом апдейте):
+
+```bash
+curl -s http://127.0.0.1:8000/access/111222333 \
+  -H "X-Internal-Token: $(grep '^INTERNAL_TOKEN=' .env | cut -d= -f2)"
+# → {"chat_id":"111222333","allowed":true}
+```
+
+Пользователь, которому отказано, видит свой id — его и передаёт администратору.
+Проверка кэшируется в боте на 60 с, отзыв доступа действует в пределах этого окна.
+
+## Демо: «покажи документы → отправь файл коллеге»
+
+Сценарий, ради которого сделаны `list_documents` и отправка вложением:
+
+1. В боте: **«Какие ФТ есть в базе знаний?»** — вопрос уходит в обычный чат (RAG).
+   Чтобы получить точный список файлов, спросите агентом: `/agent какие документы
+   есть в базе` — тогда ответит `list_documents` по файлам корпуса, а не выборка
+   чанков из векторного поиска.
+2. **«Отправь ФТ по Тарифам мне и Иванову»** — команда не нужна: сообщение с
+   просьбой отправить/переслать уходит агенту автоматически (ответ помечен
+   «🤖 Обработано агентом»). Агент берёт точное имя файла, находит получателей
+   через `find_recipient` и уходит на подтверждение. Имя файла можно писать без
+   расширения («… Версия 1.9») — сервер найдёт `… Версия 1.9.docx`.
+3. В превью видно и файл, и всех получателей: `Иванов Пётр (111222333), …`.
+4. После «✅ Отправить» файл уходит вложением (`sendDocument`) каждому получателю;
+   в подписи — краткое описание из задачи.
+
+Ограничения, о которых стоит знать: файл должен лежать в корпусе (`RAG_DATA_DIR`),
+быть документом (pdf/docx/txt/md/xlsx/csv) и не больше 50 МБ (лимит Telegram).
+Пути и `..` отбрасываются — модель называет имя файла, путь собирает сервер.
+
+## Агент: HIL-цепочка без бота (запасной план для шага 4 демо)
+
+Если на защите не нажимаются кнопки в Telegram, тот же сценарий проходится curl'ом.
+`chat_id` — обязательное поле: это чат-инициатор, ему отправка разрешена всегда
+(остальным — только если они есть в `bot_users`).
+
+```bash
+# 1. Старт задачи: агент дойдёт до опасного действия и вернёт status="interrupted"
+curl -s -X POST http://localhost:8000/agent/chat \
+  -H 'Content-Type: application/json' \
+  -d '{"message":"Найди регламент по обмену и отправь выжимку","thread_id":"demo-1","chat_id":"100000001"}'
+# → {"status":"interrupted","interrupt":{"type":"approve_send","preview":{...}}}
+
+# 2a. Подтвердить (реальная отправка через бота) — decision=false отменяет
+curl -s -X POST http://localhost:8000/agent/resume \
+  -H 'Content-Type: application/json' \
+  -d '{"thread_id":"demo-1","decision":true,"chat_id":"100000001"}'
+```
+
+Проверка политики получателя: тот же запрос с `"chat_id":"999999"` (чужой адрес в
+тексте задачи) не отправит ничего — агент получит ошибку инструмента и переспросит
+с разрешённым получателем; в логе app появится `Отклонена отправка: запрошен chat_id=...`.
 
 ## Эксперимент Б6.5: мультиагент против single-agent
 

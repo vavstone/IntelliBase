@@ -20,10 +20,30 @@ AGENT_TIMEOUT = 120.0
 
 class BackendClient:
     def __init__(
-        self, http: httpx.AsyncClient, admin_token: str = ""
+        self,
+        http: httpx.AsyncClient,
+        admin_token: str = "",
+        internal_token: str = "",
     ) -> None:
         self.http = http
         self._admin_token = admin_token
+        self._internal_token = internal_token
+
+    # --- доступ ----------------------------------------------------------
+    async def check_access(self, chat_id: int) -> bool:
+        """GET /access/{chat_id} — есть ли у пользователя доступ к боту.
+
+        Список ведёт админ в БД (таблица `bot_users`) плюс bootstrap из
+        `BOT_ALLOWED_CHAT_IDS`; бот в БД не ходит и спрашивает бэкенд.
+        Исключение httpx пробрасываем наверх: недоступный сервис — это не
+        «доступ не выдан», и путать их нельзя.
+        """
+        r = await self.http.get(
+            f"/access/{chat_id}",
+            headers={"X-Internal-Token": self._internal_token},
+        )
+        r.raise_for_status()
+        return bool(r.json().get("allowed"))
 
     # --- chat operations -------------------------------------------------
     async def get_or_create_chat(
@@ -142,22 +162,34 @@ class BackendClient:
     # --- agent (LangGraph + HIL) -----------------------------------------
     # Агент делает несколько LLM-вызовов и обращений к RAG — 30-секундного
     # дефолтного read-таймаута не хватает, поэтому здесь свой лимит.
-    async def agent_chat(self, message: str, thread_id: str) -> dict:
+    async def agent_chat(self, message: str, thread_id: str, chat_id: int) -> dict:
         """POST /agent/chat — шаг агента. Ответ: {"status": "done"|"interrupted",
-        "answer", "tool_results", "interrupt"}."""
+        "answer", "tool_results", "interrupt"}.
+
+        `chat_id` — чат-инициатор: backend разрешает отправку только в него
+        (плюс allowlist в настройках), поэтому передаём его явно, а не текстом.
+        """
         r = await self.http.post(
             "/agent/chat",
-            json={"message": message, "thread_id": thread_id},
+            json={"message": message, "thread_id": thread_id, "chat_id": str(chat_id)},
             timeout=AGENT_TIMEOUT,
         )
         r.raise_for_status()
         return r.json()
 
-    async def agent_resume(self, thread_id: str, decision: bool) -> dict:
-        """POST /agent/resume — решение человека по HIL-паузе того же thread'а."""
+    async def agent_resume(self, thread_id: str, decision: bool, chat_id: int) -> dict:
+        """POST /agent/resume — решение человека по HIL-паузе того же thread'а.
+
+        `chat_id` нужен и здесь: узел отправки перезапускается на resume с
+        конфигом этого вызова.
+        """
         r = await self.http.post(
             "/agent/resume",
-            json={"thread_id": thread_id, "decision": decision},
+            json={
+                "thread_id": thread_id,
+                "decision": decision,
+                "chat_id": str(chat_id),
+            },
             timeout=AGENT_TIMEOUT,
         )
         r.raise_for_status()

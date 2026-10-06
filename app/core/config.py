@@ -162,6 +162,13 @@ class Settings(BaseSettings):
     eval_judge_model: str = "deepseek-v4-flash"
     
     agent_checkpointer: Literal["memory", "sqlite", "postgres"] = "sqlite"
+    # Bootstrap-список разрешённых пользователей бота (chat_id через запятую).
+    # Основной список живёт в БД (таблица bot_users, админ-API
+    # /chats/admin/bot-users): в нём же имена для «отправь Иванову». Эта переменная
+    # нужна для чистого клона (таблица пуста → бот закрыт для всех, и первый
+    # администратор должен откуда-то взяться) и как аварийный доступ.
+    # Пусто + пустая таблица = бот не отвечает никому.
+    bot_allowed_chat_ids: str = ""
     # URI для чекпоинтера (psycopg v3, НЕ asyncpg):
     agent_checkpointer_postgres_uri: str = "postgresql://chat:pswd@localhost:5432/intellibase"
     agent_sqlite_path: str = "var/agent_checkpoints.sqlite"

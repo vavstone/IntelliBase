@@ -223,10 +223,13 @@ def main() -> int:
     root = Path(__file__).resolve().parent.parent
     load_env(root / ".env")
 
-    app_url = os.environ.get("SMOKE_APP_URL", "http://localhost:8000").rstrip("/")
-    qdrant_url = os.environ.get("QDRANT_URL", "http://localhost:6333").rstrip("/")
+    # 127.0.0.1, а не localhost: на Windows с Docker Desktop localhost уходит
+    # сначала в IPv6 (::1), где проброс портов идёт через wslrelay и изредка
+    # «залипает» — запрос висит до таймаута, хотя сервис жив. Просим IPv4 явно.
+    app_url = os.environ.get("SMOKE_APP_URL", "http://127.0.0.1:8000").rstrip("/")
+    qdrant_url = os.environ.get("QDRANT_URL", "http://127.0.0.1:6333").rstrip("/")
     collection = os.environ.get("RAG_COLLECTION", "rag_demo")
-    phoenix_url = os.environ.get("SMOKE_PHOENIX_URL", "http://localhost:6006").rstrip("/")
+    phoenix_url = os.environ.get("SMOKE_PHOENIX_URL", "http://127.0.0.1:6006").rstrip("/")
     phoenix_required = os.environ.get("PHOENIX_ENABLED", "false").lower() in {"1", "true", "yes"}
 
     checks: list[Check] = []

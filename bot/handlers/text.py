@@ -7,6 +7,7 @@ import logging
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
+from bot.handlers.agent import looks_like_action, run_agent_task
 from bot.services.backend_client import BackendClient
 from bot.services.error_handling import handle_backend_error
 from bot.services.streaming import stream_to_chat
@@ -24,6 +25,15 @@ async def on_text(
     # Здесь страховочная проверка: fsm-роутер регистрируется выше text-роутера,
     # так что в норме это не сработает.
     if await state.get_state() is not None:
+        return
+
+    # Просьба отправить/переслать — это задача агенту, а не вопрос по базе:
+    # обычный чат инструментов не имеет и на такую просьбу честно ответит
+    # «сведений о такой функции нет». Автомаршрут избавляет от необходимости
+    # знать про /agent (см. bot/handlers/agent.py).
+    if looks_like_action(message.text):
+        log.info("Автомаршрут в агента: %r", message.text[:80])
+        await run_agent_task(message, message.text.strip(), backend, auto_routed=True)
         return
 
     chat_id = await backend.get_or_create_chat(

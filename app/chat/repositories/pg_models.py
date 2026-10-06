@@ -193,3 +193,31 @@ class KbCategoryRow(Base):
     created_at: Mapped[datetime] = mapped_column(
         TimestampTZ, default=lambda: datetime.now(UTC)
     )
+
+
+class BotUserRow(Base):
+    """Разрешённые пользователи бота (allowlist корпоративного бота).
+
+    Одна запись = один человек: `chat_id` — его Telegram-идентификатор, `title` —
+    человекочитаемое имя («Иванов Пётр, руководитель отдела»). Список решает
+    сразу две задачи:
+
+    - кому бот вообще отвечает (проверка на входе, `/access/{chat_id}`);
+    - кому агент имеет право отправлять сообщения — по имени работает
+      «отправь Иванову» (инструмент `find_recipient`), а имя же показывается
+      человеку в превью перед подтверждением, чтобы он не сверял цифры chat_id.
+
+    `is_active=False` — доступ отозван (мягкое удаление, как у сообщений чата):
+    история сохраняется, бот перестаёт отвечать и отправлять.
+    """
+
+    __tablename__ = "bot_users"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    chat_id: Mapped[str] = mapped_column(unique=True)
+    title: Mapped[str]
+    is_active: Mapped[bool] = mapped_column(default=True)
+    created_by: Mapped[str | None]
+    created_at: Mapped[datetime] = mapped_column(
+        TimestampTZ, default=lambda: datetime.now(UTC)
+    )

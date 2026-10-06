@@ -15,6 +15,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 
 from bot.config import get_bot_settings
 from bot.handlers import register_routers
+from bot.middlewares import AccessMiddleware
 from bot.services.alert_drain import drain_alerts
 from bot.services.backend_client import BackendClient
 from bot.services.http import build_http_client
@@ -72,9 +73,13 @@ async def main() -> None:
 
     http = build_http_client(settings)
     backend = BackendClient(
-        http, admin_token=settings.admin_token.get_secret_value()
+        http,
+        admin_token=settings.admin_token.get_secret_value(),
+        internal_token=settings.internal_token.get_secret_value(),
     )
     dp["backend"] = backend
+    # Гейт доступа — на все апдейты: посторонний не доходит до обработчиков.
+    dp.update.outer_middleware(AccessMiddleware(backend))
 
     register_routers(dp)
 
