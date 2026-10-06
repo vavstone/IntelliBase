@@ -55,6 +55,6 @@
 
 5. **Тюнинг (chunk_size × overlap × top-K).** Чанк 512 лучше 256 (Hit@5 1.0 против 0.958; MRR 0.925–0.951 против 0.889–0.938); overlap 64 лучше 32 при чанке 512 (MRR 0.951 против 0.925); top-K=20 не даёт прироста к top-K=10.
 
-**Зафиксированная конфигурация** (`app/core/config.py` / `.env`): `RAG_CHUNK_SIZE=512`, `RAG_CHUNK_OVERLAP=64`, `RAG_TOP_K=10`; re-ranker опционален (`RAG_RERANK_ENABLED=false`, `RAG_RERANK_TOP_N=3`).
+**Зафиксированная конфигурация** (`app/core/config.py` / `.env`): `RAG_CHUNK_SIZE=512`, `RAG_CHUNK_OVERLAP=64`, `RAG_TOP_K=10`; re-ranker опционален (`RAG_RERANK_ENABLED=false`, `RAG_RERANK_TOP_N=5`).
 
 **Ограничение эксперимента.** Hit@5 на потолке — значит, сравнивать стратегии по Hit@5 на этом корпусе некорректно; для A/B-сравнения нужен MRR@10 (или более трудный golden dataset). План следующей итерации: добавить длинные/многотемные документы и гибридный поиск (BM25 + RRF), где re-ranker и semantic-чанкинг проявят себя сильнее.
