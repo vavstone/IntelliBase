@@ -5,8 +5,10 @@
 .github/
 
 # Python
-__pycache__/
-*.py[cod]
+# `**/` обязателен: без него паттерн матчится только в корне контекста, и
+# __pycache__ из app/, bot/, scripts/, migrations/ попадал в образ (138 .pyc).
+**/__pycache__/
+**/*.py[cod]
 *$py.class
 *.so
 .Python
