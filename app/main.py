@@ -27,6 +27,7 @@ from app.core.exceptions import (
 from app.routers import access, categories, chat, documents, health, models, rag, agent
 from app.observability.tracing import instrument_fastapi_app, setup_tracing
 from app.observability.logger import setup_logging
+from app.services.llm_fallback import OPENAI_UNAVAILABLE_ERRORS, resolve_fallback
 
 # Настраиваем structlog
 setup_logging(level="INFO")
@@ -35,6 +36,39 @@ setup_logging(level="INFO")
 logger = structlog.get_logger()
 
 settings = get_settings()
+
+
+def _provider_chat_kwargs(cfg, provider: str, model: str) -> dict | None:
+    """Параметры ChatOpenAI для провайдера — или None, если он не поддержан.
+
+    У агента своя модель (LangChain), поэтому её нельзя взять из готового
+    клиента LLMService: нужен именно набор api_base/api_key под провайдера.
+    """
+    if provider == "deepseek":
+        return {
+            "model": model,
+            "base_url": cfg.llm.deepseek_base_url,
+            "api_key": cfg.llm.deepseek_api_key.get_secret_value(),
+        }
+    if provider == "openai":
+        return {
+            "model": model,
+            "base_url": cfg.llm.openai_base_url,
+            "api_key": cfg.llm.openai_api_key.get_secret_value(),
+        }
+    if provider == "openrouter":
+        return {
+            "model": model,
+            "base_url": cfg.llm.openrouter_base_url,
+            "api_key": cfg.llm.openrouter_api_key.get_secret_value(),
+        }
+    if provider == "ollama":
+        return {
+            "model": model,
+            "base_url": cfg.llm.ollama_base_url,
+            "api_key": "ollama",
+        }
+    return None
 
 
 @asynccontextmanager
@@ -210,12 +244,36 @@ async def lifespan(app: FastAPI):
         )
         from app.services.agent_persistent import agent_lifespan
 
+        agent_provider, agent_model_name = "deepseek", "deepseek-v4-flash"
+
         agent_model = ChatOpenAI(
-            model="deepseek-v4-flash",
+            model=agent_model_name,
             base_url=settings.llm.deepseek_base_url,
             api_key=settings.llm.deepseek_api_key.get_secret_value(),
             temperature=0,
         )
+
+        # Резерв для агента: при недоступности DeepSeek граф переходит на
+        # локальную Ollama. Здесь штатный `with_fallbacks` из LangChain — он
+        # сам решает, когда звать второй Runnable; список исключений берём
+        # общий (см. app/services/llm_fallback.py), чтобы «400» и фильтр
+        # контента резервом не подменялись.
+        agent_fallback = resolve_fallback(
+            settings.llm.fallback_provider, settings.llm.fallback_model, agent_provider
+        )
+        if agent_fallback is not None:
+            fb_provider, fb_model = agent_fallback
+            fb_kwargs = _provider_chat_kwargs(settings, fb_provider, fb_model)
+            if fb_kwargs is None:
+                logger.warning(
+                    "Резервный провайдер агента %r не поддержан — работаю без резерва",
+                    fb_provider,
+                )
+            else:
+                agent_model = agent_model.with_fallbacks(
+                    [ChatOpenAI(temperature=0, **fb_kwargs)],
+                    exceptions_to_handle=OPENAI_UNAVAILABLE_ERRORS,
+                )
 
         async def _send_telegram_impl(draft: dict) -> str:
             """Реальная доставка через бота: текст (`POST /notify`) или файл

@@ -31,6 +31,7 @@ from app.chat.repository import ChatRepository, SystemPromptRepository
 from app.moderation.domain import ModerationResult
 from app.moderation.service import ModerationService
 from app.services.llm import DEEPSEEK_NO_THINKING
+from app.services.llm_fallback import resolve_fallback, with_fallback
 
 logger = logging.getLogger("llm-service.chat")
 
@@ -66,12 +67,18 @@ class ChatService:
         rag_condense_enabled: bool = False,
         rag_score_threshold: float = 0.5,
         llm_deepseek=None,
+        fallback_provider: str = "",
+        fallback_model: str = "",
     ):
         self.repository = repository
         self.llm_ollama = llm_ollama
         self.llm_openai = llm_openai
         self.llm_openrouter = llm_openrouter
         self.llm_deepseek = llm_deepseek
+        # Резерв на случай недоступности основного провайдера (см.
+        # app/services/llm_fallback.py). Пусто — подмены нет.
+        self.fallback_provider = fallback_provider
+        self.fallback_model = fallback_model
         self.context_window = context_window
         self.default_provider = default_provider
         self.default_model = default_model
@@ -93,6 +100,59 @@ class ChatService:
         elif provider == "deepseek":
             return  self.llm_deepseek
         return  self.llm_ollama
+
+    def fallback_target(self, provider: str):
+        """(клиент, модель) резерва или None — если подменять нечем.
+
+        None в двух случаях: резерв не настроен (`LLM__FALLBACK_PROVIDER` пуст)
+        либо совпал с основным провайдером — тогда переключение было бы пустым.
+        """
+        target = resolve_fallback(self.fallback_provider, self.fallback_model, provider)
+        if target is None:
+            return None
+        fb_provider, fb_model = target
+        return self.get_llm(fb_provider), fb_model, fb_provider
+
+    @staticmethod
+    def _stream_extra(provider: str) -> dict:
+        """`stream_options` понимают только OpenAI-совместимые облачные
+        провайдеры — резервной Ollama это поле отправлять нельзя."""
+        if provider in ("openai", "openrouter", "deepseek"):
+            return {"stream_options": {"include_usage": True}}
+        return {}
+
+    async def _create_stream(self, llm, provider: str, model: str, messages: list):
+        """Создаёт стрим; при недоступности провайдера — на резервном.
+
+        Подменяется только создание: оно происходит до первого чанка. Разрыв
+        посреди начатого ответа не переигрывается — иначе пользователь увидел
+        бы текст дважды.
+        """
+        target = self.fallback_target(provider)
+        return await with_fallback(
+            lambda: llm.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=self.default_temperature,
+                max_tokens=self.default_max_tokens,
+                stream=True,
+                **self._stream_extra(provider),
+            ),
+            (
+                lambda: target[0].chat.completions.create(
+                    model=target[1],
+                    messages=messages,
+                    temperature=self.default_temperature,
+                    max_tokens=self.default_max_tokens,
+                    stream=True,
+                    **self._stream_extra(target[2]),
+                )
+            )
+            if target
+            else None,
+            context=f"chat.stream:{provider}",
+            fallback_name=target[1] if target else "",
+        )
 
     def _rag_active(self) -> bool:
         return self.rag_service is not None and self.rag_enable_chat
@@ -241,13 +301,28 @@ class ChatService:
             return user_content
         history_str = "\n".join(f"{m.role}: {m.content}" for m in prior[-6:])
         prompt = CONDENSE_TEMPLATE.format(history=history_str, question=user_content)
+        model = chat.model or self.default_model
+        messages = [{"role": "user", "content": prompt}]
+        # extra_body у провайдеров свой: thinking есть только у DeepSeek, и
+        # резервной Ollama его передавать нельзя.
         extra = DEEPSEEK_NO_THINKING if chat.provider == "deepseek" else {}
-        resp = await llm.chat.completions.create(
-            model=chat.model or self.default_model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.0,
-            max_tokens=128,
-            **extra,
+        target = self.fallback_target(chat.provider)
+        fb_extra = DEEPSEEK_NO_THINKING if target and target[2] == "deepseek" else {}
+
+        def _call(client, call_model: str, call_extra: dict):
+            return client.chat.completions.create(
+                model=call_model,
+                messages=messages,
+                temperature=0.0,
+                max_tokens=128,
+                **call_extra,
+            )
+
+        resp = await with_fallback(
+            lambda: _call(llm, model, extra),
+            (lambda: _call(target[0], target[1], fb_extra)) if target else None,
+            context="chat.condense",
+            fallback_name=target[1] if target else "",
         )
         out = (resp.choices[0].message.content or "").strip()
         return out or user_content
@@ -335,18 +410,10 @@ class ChatService:
         )
         buffer = ""
         usage = None
-        extra = {}
-        if chat.provider in ("openai", "openrouter", "deepseek"):
-            extra["stream_options"] = {"include_usage": True}
 
         try:
-            stream = await llm.chat.completions.create(
-                model=chat.model or self.default_model,
-                messages=messages,
-                temperature=self.default_temperature,
-                max_tokens=self.default_max_tokens,
-                stream=True,
-                **extra,
+            stream = await self._create_stream(
+                llm, chat.provider, chat.model or self.default_model, messages
             )
             async for chunk in stream:
                 if hasattr(chunk, "usage") and chunk.usage:
@@ -480,19 +547,9 @@ class ChatService:
         buffer = ""
         usage = None
 
-        # stream_options — только для OpenAI-совместимых провайдеров
-        extra = {}
-        if chat.provider in ("openai", "openrouter", "deepseek"):
-            extra["stream_options"] = {"include_usage": True}
-
         try:
-            stream = await llm.chat.completions.create(
-                model=chat.model or self.default_model,
-                messages=messages,
-                temperature=self.default_temperature,
-                max_tokens=self.default_max_tokens,
-                stream=True,
-                **extra,
+            stream = await self._create_stream(
+                llm, chat.provider, chat.model or self.default_model, messages
             )
             async for chunk in stream:
                 if hasattr(chunk, "usage") and chunk.usage:

@@ -38,6 +38,7 @@
 | `app/services/rag.py` | Онлайн-контур RAG: retrieve → score-guard → генерация с цитатами |
 | `app/services/rag_baremetal.py` | RAG без фреймворка (сравнение с LlamaIndex) |
 | `app/services/ingestion.py` | Офлайн-контур: парсинг (pdf-inspector для PDF) → чанкинг → эмбеддинг → UPSERTS в Qdrant |
+| `app/services/llm_fallback.py` | Резервный провайдер при недоступности основного: классификация ошибок и подмена (чат, синтез RAG, агент) |
 | `app/services/vector_store.py` | Async-обёртка над Qdrant (коллекция `documents`) |
 | `app/services/reranker.py` | Cross-encoder реранкер (опционально) |
 | `app/services/chunking.py` | Стратегии чанкинга fixed/recursive/semantic (эксперимент) |

@@ -23,6 +23,12 @@ class LLMSettings(BaseSettings):
     default_model: str = "qwen2.5:3b"
     request_timeout: float = 30.0
     max_retries: int = 3
+    # Резерв на случай недоступности основного провайдера (нет сети, таймаут,
+    # 429, протухший ключ) — см. app/services/llm_fallback.py. Пустая строка
+    # выключает подмену. Модель задаётся отдельно: имена у провайдеров разные
+    # (deepseek-v4-flash против qwen2.5:3b), одним полем не обойтись.
+    fallback_provider: Literal["", "openai", "ollama", "openrouter", "deepseek"] = "ollama"
+    fallback_model: str = "qwen2.5:3b"
 
 
 class EmbeddingSettings(BaseSettings):

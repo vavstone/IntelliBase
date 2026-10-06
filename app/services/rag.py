@@ -34,6 +34,7 @@ from qdrant_client import AsyncQdrantClient, QdrantClient
 
 from app.core.config import Settings as AppSettings
 from app.core.config import get_settings
+from app.services.llm_fallback import resolve_fallback, with_fallback
 
 logger = logging.getLogger(__name__)
 
@@ -158,30 +159,48 @@ class RAGService:
             normalize=True,
         )
 
-        if settings.rag_llm_provider == "deepseek":
-            Settings.llm = OllamaLLM(
-                model=settings.rag_llm_model,
-                temperature=0.0,
-                api_key=settings.llm.deepseek_api_key.get_secret_value(),
-                api_base=settings.llm.deepseek_base_url,
-                timeout=settings.rag_llm_timeout,
-                context_window=settings.rag_llm_context_window,
-            )
-        else:
-            Settings.llm = OllamaLLM(
-                model=settings.rag_llm_model,
-                temperature=0.0,
-                api_key="ollama",
-                api_base=settings.llm.ollama_base_url,
-                timeout=settings.rag_llm_timeout,
-                context_window=settings.rag_llm_context_window,
-            )
+        # Синтез: основная модель — из RAG_LLM_*, резерв — из LLM__FALLBACK_*
+        # (см. app/services/llm_fallback.py). Ставим и в Settings.llm: на неё
+        # смотрит код LlamaIndex, который мы не вызываем напрямую.
+        self._llm = self._build_llm(settings, settings.rag_llm_provider, settings.rag_llm_model)
+        Settings.llm = self._llm
+        self._fallback_llm = None
+        target = resolve_fallback(
+            settings.llm.fallback_provider,
+            settings.llm.fallback_model,
+            settings.rag_llm_provider,
+        )
+        if target is not None:
+            self._fallback_llm = self._build_llm(settings, target[0], target[1])
 
         self._client = QdrantClient(url=settings.qdrant_url, api_key=qdrant_key)
         self._aclient = AsyncQdrantClient(url=settings.qdrant_url, api_key=qdrant_key)
         self._index: VectorStoreIndex | None = None
         self._retriever = None
         self._postprocessors: list = []
+
+    @staticmethod
+    def _build_llm(settings: AppSettings, provider: str, model: str) -> "OllamaLLM":
+        """LLM для синтеза: OpenAI-совместимый клиент на облако (DeepSeek) или
+        на локальную Ollama. Вынесено отдельно, чтобы тем же кодом собрать
+        резервную модель для fallback."""
+        if provider == "deepseek":
+            return OllamaLLM(
+                model=model,
+                temperature=0.0,
+                api_key=settings.llm.deepseek_api_key.get_secret_value(),
+                api_base=settings.llm.deepseek_base_url,
+                timeout=settings.rag_llm_timeout,
+                context_window=settings.rag_llm_context_window,
+            )
+        return OllamaLLM(
+            model=model,
+            temperature=0.0,
+            api_key="ollama",
+            api_base=settings.llm.ollama_base_url,
+            timeout=settings.rag_llm_timeout,
+            context_window=settings.rag_llm_context_window,
+        )
 
     def _vector_store(self) -> QdrantVectorStore:
         return QdrantVectorStore(
@@ -287,10 +306,18 @@ class RAGService:
                 "confident": False,
             }
 
-        response = await Settings.llm.acomplete(
-            CITATION_QA_TEMPLATE.format(
-                context_str=numbered_context(nodes), query_str=question
-            )
+        prompt = CITATION_QA_TEMPLATE.format(
+            context_str=numbered_context(nodes), query_str=question
+        )
+        response = await with_fallback(
+            lambda: self._llm.acomplete(prompt),
+            (
+                (lambda: self._fallback_llm.acomplete(prompt))
+                if self._fallback_llm is not None
+                else None
+            ),
+            context="rag.synthesize",
+            fallback_name=self._settings.llm.fallback_model,
         )
         sources = build_sources(nodes)
         return {

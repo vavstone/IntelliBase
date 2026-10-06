@@ -86,6 +86,9 @@ def get_chat_service(
         context_window=settings.chat_context_window,
         default_provider=settings.llm.default_provider,
         default_model=settings.llm.default_model,
+        # Резерв на случай недоступности облачного провайдера (llm_fallback.py)
+        fallback_provider=settings.llm.fallback_provider,
+        fallback_model=settings.llm.fallback_model,
 		moderation=moderation,
         prompt_repo=prompt_repo,
         # Диалоговый RAG (Б5.5): подключаем сервис, если он поднят в lifespan.
