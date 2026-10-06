@@ -11,17 +11,41 @@
 - **FastAPI-бэкенд** (порт 8000) — REST API + SSE, векторный поиск (RAG) по базе знаний.
 - **Telegram-бот** (aiogram, порт 9000) — клиент бэкенда; поднимает собственный HTTP-сервер для обратных вызовов (`POST /notify`).
 
+```mermaid
+flowchart TB
+    user(["Сотрудник<br/>Telegram"])
+    bot["Telegram-бот<br/>aiogram · порт 9000"]
+    api["FastAPI · порт 8000<br/>чат (SSE) · RAG · агент"]
+
+    user -->|"вопрос, поручение"| bot
+    bot -->|"HTTP: /chats, /rag, /agent"| api
+    api -->|"POST /notify — отправка агентом"| bot
+    bot -->|"ответ с цитатами, документ"| user
+
+    subgraph storage["Хранилища"]
+        pg[("PostgreSQL<br/>чаты · список доступа<br/>чекпоинты агента")]
+        redis[("Redis<br/>кэш LLM · счётчики метрик")]
+        qdrant[("Qdrant<br/>векторы · rag_demo")]
+    end
+
+    subgraph llm["LLM"]
+        deepseek["DeepSeek · облако<br/>чат · RAG · агент"]
+        ollama["Ollama · локально<br/>qwen2.5:3b — резерв"]
+    end
+
+    phoenix["Phoenix · порт 6006<br/>трейсы"]
+
+    api --> pg
+    api --> redis
+    api -->|"поиск"| qdrant
+    api -->|"основной"| deepseek
+    api -.->|"при сбое"| ollama
+    api -.->|"трейсы"| phoenix
 ```
-┌──────────────┐     HTTP/SSE       ┌────────────────┐
-│  aiogram Bot │ ────────────────→  │  FastAPI App   │
-│  (port 9000) │ ←─── POST /notify ─│  (port 8000)   │
-└──────────────┘                    └───────┬────────┘
-                                            │
-      ┌─────────────┬──────────────┬────────┼────────┬──────────┐
-      ↓             ↓              ↓        ↓        ↓          ↓
- PostgreSQL 16   Redis 7.4   Arize Phoenix  Qdrant  Ollama  Embed-модель
- (чаты, кат-ии) (кэш LLM)   (трейсы LLM)  (вектора) (LLM)  (ST, локально)
-```
+
+Эмбеддинги (`intfloat/multilingual-e5-large`) считаются локально внутри
+приложения — отдельным сервисом не вынесены. Резервный провайдер — ADR-003
+в [docs/architecture.md](docs/architecture.md).
 
 ## Карта модулей
 
