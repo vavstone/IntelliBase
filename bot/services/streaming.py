@@ -52,15 +52,36 @@ def to_tg_markdown(text: str) -> str:
 def format_sources(sources: list[dict]) -> str:
     """Плейн-текстовая подпись источников RAG-ответа (без HTML/Markdown-тегов).
 
+    Фрагменты одной страницы одного документа схлопываются в одну строку с
+    перечислением номеров: `[1][2] отчёт.pdf, стр. 3`. Без этого два куска
+    с одной страницы дают две одинаковые строки подряд и выглядят как дубль.
+    Номера сохраняем все: на них ссылаются маркеры цитат в тексте ответа.
+
     Берём до 5 источников: Telegram-сообщение ограничено 4096 символами, а
-    клиенту важны верхние по score. Формат: «[1] file.pdf, стр. 3».
+    клиенту важны верхние по score. Схлопывание идёт до отбора, поэтому пятью
+    строками показываем до пяти разных документов, а не пять фрагментов.
     """
     if not sources:
         return ""
+
+    order: list[tuple[str, int | None]] = []
+    ids_by_key: dict[tuple[str, int | None], list] = {}
+    for s in sources:
+        source_id = s.get("id")
+        if source_id is None:
+            # без номера строку не построить: на него ссылаются цитаты
+            continue
+        key = (s.get("file_name", "?"), s.get("page"))
+        if key not in ids_by_key:
+            ids_by_key[key] = []
+            order.append(key)
+        ids_by_key[key].append(source_id)
+
     lines = ["Источники:"]
-    for s in sources[:5]:
-        page = f", стр. {s['page']}" if s.get("page") else ""
-        lines.append(f"[{s['id']}] {s.get('file_name', '?')}{page}")
+    for file_name, page in order[:5]:
+        numbers = "".join(f"[{sid}]" for sid in ids_by_key[(file_name, page)])
+        page_suffix = f", стр. {page}" if page else ""
+        lines.append(f"{numbers} {file_name}{page_suffix}")
     return "\n".join(lines)
 
 # Минимальный интервал между sendMessageDraft вызовами на один draft.
