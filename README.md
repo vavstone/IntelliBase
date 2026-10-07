@@ -248,7 +248,9 @@ make test-all     # полный прогон, нужна поднятая ин�
 [docs/rag_evaluation.md](docs/rag_evaluation.md).
 
 **Эксплуатационные метрики** — `make metrics`: p95 задержек, cache hit rate,
-доля отказов RAG.
+доля отказов RAG. Оговорка: `cache hit rate` считается по кэшу ответов, который
+покрывает только `POST /chat` (legacy) — в чате бота, в RAG и у агента кэша нет,
+см. [docs/limitations.md](docs/limitations.md), раздел 3.
 
 ## Документация
 
