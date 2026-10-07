@@ -82,7 +82,12 @@ class Settings(BaseSettings):
     bot_url: str = "http://bot:9000"
     # Включить OpenAI Moderation API (layer 2 каскада). Если False —
     # только regex-блоклист.
-    moderation_use_openai: bool = True
+    # Второй слой модерации — внешний OpenAI Moderation API. По умолчанию
+    # ВЫКЛЮЧЕН: требует выхода в интернет (VPN или PROXY_URL), рабочего ключа
+    # OpenAI и отправляет текст пользователя во внешний сервис — для внутренней
+    # базы знаний это осознанный выбор, а не техническая необходимость.
+    # Локальный regex-блоклист работает всегда и от флага не зависит.
+    moderation_use_openai: bool = False
     # Rate limit: сколько сообщений на одного owner_external_id в минуту.
     rate_limit_messages_per_min: int = 15
 

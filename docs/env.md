@@ -168,7 +168,7 @@ backoff) при этом отрабатывают первыми — резер�
 
 | Переменная | Дефолт | Назначение |
 |-----------|--------|------------|
-| `MODERATION_USE_OPENAI` | `true` | включить OpenAI Moderation API |
+| `MODERATION_USE_OPENAI` | `false` | второй слой модерации — OpenAI Moderation API; выключен по умолчанию: внешний вызов, нужен ключ и выход в сеть. Regex-слой работает всегда |
 | `RATE_LIMIT_MESSAGES_PER_MIN` | `15` | лимит сообщений/мин на владельца |
 | `APP_NAME` | `llm-service-example` | имя приложения |
 | `CORS_ORIGINS` | `["*"]` | список origin |

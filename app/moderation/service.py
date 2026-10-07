@@ -69,7 +69,7 @@ class ModerationService:
     def __init__(
         self,
         llm_client: AsyncOpenAI,
-        use_openai_moderation: bool = True,
+        use_openai_moderation: bool = False,
         blocklist: list[dict[str, str]] | None = None,
         session_factory=None,
     ):
