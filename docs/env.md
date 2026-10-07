@@ -110,7 +110,7 @@ backoff) при этом отрабатывают первыми — резер�
 |-----------|--------|------------|
 | `PHOENIX_ENABLED` | `false` | включить инструментеры OpenAI, LangChain/LangGraph, LlamaIndex и FastAPI |
 | `PHOENIX_COLLECTOR_ENDPOINT` | `http://localhost:6006/v1/traces` | OTLP-эндпоинт Phoenix (HTTP; порт `:4317` — gRPC, протокол выводится из URL) |
-| `PHOENIX_EXCLUDED_URLS` | `/health,/ready,/openapi.json,/docs,/redoc` | пути, исключённые из трейсинга (healthcheck'и раз в 30 с вытесняют осмысленные трейсы) |
+| `PHOENIX_EXCLUDED_URLS` | `/health,/ready,/openapi.json,/docs,/redoc,/access,^https?://[^/]+/chats$` | пути, исключённые из трейсинга (healthcheck'и раз в 30 с вытесняют осмысленные трейсы, `/access` бот дёргает на каждом апдейте). Шаблоны — regex, ищутся в полном URL через `re.search`: чтобы исключить только `POST /chats`, нужны якоря `^…$` — без них шаблон `/chats` выключит и `/chats/{id}/messages` |
 
 В контейнере флаг включён в `compose.yaml` (`PHOENIX_ENABLED=true`, эндпоинт
 `http://phoenix:4317` — gRPC внутри сети compose): образ собирается с

@@ -161,8 +161,16 @@ class Settings(BaseSettings):
     phoenix_collector_endpoint: str = "http://localhost:6006/v1/traces"
     # Пути, исключённые из трейсинга (через запятую). Healthcheck'и стучатся в
     # /health и /ready каждые 30 с — без исключения они забивают список трейсов
-    # и вытесняют из него осмысленные запросы.
-    phoenix_excluded_urls: str = "/health,/ready,/openapi.json,/docs,/redoc"
+    # и вытесняют из него осмысленные запросы; /access/{chat_id} дёргает бот на
+    # каждом апдейте, POST /chats — служебное создание чата. Оба дают корневой
+    # HTTP-спан без LLM внутри: колонки kind/input/output/metadata в Phoenix у
+    # таких спанов пустые (тип задают только инструментеры LLM-библиотек).
+    # Шаблоны — regex, ищутся в полном URL через re.search, а не по префиксу:
+    # «только POST /chats» требует якорей, иначе шаблон /chats выключит и
+    # /chats/{id}/messages — основной путь чата, где спаны LLM и живут.
+    phoenix_excluded_urls: str = (
+        "/health,/ready,/openapi.json,/docs,/redoc,/access,^https?://[^/]+/chats$"
+    )
 
     # Оценка качества (RAGAS) -------------------------------------------------
     # Судья и эмбеддинги для офлайн-оценки (scripts/run_eval.py,

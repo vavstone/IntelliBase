@@ -297,8 +297,22 @@ Phoenix поднимается вместе со стеком (`compose.yaml`, �
 | `POST /chat`, `/chats`, модерация | `ChatCompletion` (OpenAI SDK) |
 | `POST /agent/chat`, `/agent/resume` | `LangGraph` → узлы (`call_model`, `execute_tool`, `prepare_send`, `confirm_and_send`) → `ChatOpenAI`; инструменты — `search_knowledge_base` с вложенными RAG-спанами |
 
-Служебные пробы (`/health`, `/ready`, `/docs`, `/openapi.json`) исключены из
-трейсинга переменной `PHOENIX_EXCLUDED_URLS`, спаны `http receive/send` не пишутся.
+Служебные пробы (`/health`, `/ready`, `/docs`, `/openapi.json`), проверка доступа
+(`GET /access/{chat_id}` — бот дёргает её на каждом апдейте) и создание чата
+(`POST /chats`) исключены из трейсинга переменной `PHOENIX_EXCLUDED_URLS`, спаны
+`http receive/send` не пишутся. Шаблон для создания чата — с якорями
+(`^https?://[^/]+/chats$`): список сопоставляется регулярками через `re.search`
+по полному URL, и шаблон `/chats` без якорей выключил бы заодно
+`/chats/{id}/messages` — основной путь чата со спанами LLM.
+
+**Пустые колонки у корневого спана — это норма.** У HTTP-спана `kind = unknown`,
+`status` — прочерк (`UNSET`), `input`/`output`/`metadata` пусты: тип спана и
+вход/выход проставляют только инструментеры LLM-библиотек (OpenInference), а
+FastAPI-инструментер тел запросов и ответов не перехватывает. Заполненные данные
+(промпт, ответ, токены, `thread_id`) — на дочерних спанах `llm`/`chain`/`tool`:
+в списке нужно снять фильтр **Root Spans** или раскрыть трейс. Токены у корня при
+этом не нулевые — колонка кумулятивная (сумма по потомкам), а стоимость нулевая
+потому, что `deepseek-v4-flash` нет во встроенном прайс-листе Phoenix.
 
 Однострочная проверка, что спаны доехали (без UI):
 
