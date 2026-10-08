@@ -14,6 +14,11 @@
 # (там была логика с if/awk) падал, не дойдя до самой проверки. Поэтому вся
 # логика переехала в scripts/smoke.py, а список целей для `help` продублирован
 # текстом, а не собирается грепом из `##`-комментариев.
+#
+# Тексты, которые печатают сами цели, — латиницей: русские строки в UTF-8-файле
+# make на Windows перекодирует в кодировку консоли и они выходят кракозябрами
+# (вывод самих скриптов печатает python — он с этим справляется, поэтому там
+# русский остался). Комментарии можно писать по-русски: они не печатаются.
 SHELL := /bin/sh
 .DEFAULT_GOAL := help
 
@@ -35,29 +40,29 @@ LABEL ?= demo
 .PHONY: help up down restart ps logs smoke smoke-rag smoke-host test test-all ingest reindex eval metrics thresholds shell clean
 
 help: ## Список целей
-	@echo IntelliBase - доступные команды:
-	@echo   up          поднять стек (app + bot + инфраструктура) и дождаться готовности
-	@echo   smoke       проверить живость: сервисы, /health, /ready, Qdrant, Phoenix
-	@echo   smoke-rag   то же + сквозной вопрос к RAG (нужны LLM и корпус)
-	@echo   smoke-host  smoke, когда приложение запущено на хосте (uvicorn вне Docker)
-	@echo   down        остановить стек (данные в томах сохраняются)
-	@echo   restart     перезапустить app и bot без пересборки
-	@echo   ps          статус сервисов
-	@echo   logs        логи app и bot (Ctrl+C - выйти)
-	@echo   test        быстрые тесты (нужен uv)
-	@echo   test-all    полный прогон тестов (нужны uv и поднятый стек)
-	@echo   ingest      инкрементальная индексация корпуса
-	@echo   reindex     полная переиндексация (чистит коллекцию и docstore)
-	@echo   eval        оценка качества RAG (RAGAS, нужен uv)
-	@echo   metrics     метрики: p95, cache hit rate, последний прогон RAGAS
-	@echo   thresholds  сверка последнего прогона RAGAS с порогами
-	@echo   users       доступ к боту: make users ARGS=list
-	@echo   shell       bash внутри контейнера app
-	@echo   clean       остановить стек и удалить тома (ОСТОРОЖНО)
+	@echo IntelliBase targets:
+	@echo   up          start the stack (app + bot + infra), wait until ready
+	@echo   smoke       liveness: app, bot, /health, /ready, Qdrant, Phoenix
+	@echo   smoke-rag   smoke + end-to-end RAG question (needs LLM and corpus)
+	@echo   smoke-host  smoke when the app runs on the host (uvicorn outside Docker)
+	@echo   down        stop the stack (data in volumes is kept)
+	@echo   restart     restart app and bot without rebuild
+	@echo   ps          service status
+	@echo   logs        app and bot logs (Ctrl+C to exit)
+	@echo   test        fast tests (needs uv)
+	@echo   test-all    full test run (needs uv and a running stack)
+	@echo   ingest      incremental corpus indexing
+	@echo   reindex     full reindex (wipes collection and docstore)
+	@echo   eval        RAG quality (RAGAS, needs uv)
+	@echo   metrics     p95, cache hit rate, last RAGAS run
+	@echo   thresholds  check the last RAGAS run against thresholds
+	@echo   users       bot access: make users ARGS=list
+	@echo   shell       bash inside the app container
+	@echo   clean       stop the stack and delete volumes (CAREFUL)
 
 up: ## Поднять стек (app + bot + инфраструктура) и дождаться готовности
 	$(COMPOSE) up -d --build --wait
-	@echo "Стек поднят. Проверка: make smoke"
+	@echo Stack is up. Check: make smoke
 
 down: ## Остановить стек (данные в томах сохраняются)
 	$(COMPOSE) down
