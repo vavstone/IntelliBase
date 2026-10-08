@@ -68,6 +68,16 @@ head -c 20 entrypoint.sh | od -c   # ожидается "#!/bin/sh\n", без \r
 git config --get core.autocrlf     # true — не страшно, .gitattributes перекрывает
 ```
 
+### Если контейнер bot уходит в рестарт-луп
+
+`docker logs chat-bot` показывает `ValidationError … bot_admin_ids` — значит в
+`.env` комментарий приклеен к переменной без значения
+(`BOT_ADMIN_IDS=   # админы через запятую`). И docker compose, и python-dotenv
+отдают текст после `=` значением целиком, а `int()` от него падает. Лечится
+переносом комментария на отдельную строку. С 08.10 такие хвосты обрезаются в
+`bot/config.py` (то же для `BOT_TOKEN`), а в `.env.example` комментарии стоят
+отдельными строками.
+
 ### `make up` падает на «dependency failed to start: container llm-service is unhealthy»
 
 `docker logs llm-service` показывает `ValueError: Unknown scheme for proxy URL` и

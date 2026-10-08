@@ -29,6 +29,23 @@ def test_bot_empty_proxy_is_none(raw: str) -> None:
     assert settings.proxy_url is None
 
 
+def test_bot_admin_ids_ignores_inline_comment() -> None:
+    """`BOT_ADMIN_IDS=  # комментарий` — комментарий приходит значением (08.10)."""
+    settings = BotSettings(bot_token="123:test", bot_admin_ids="# админы через запятую")
+    assert settings.bot_admin_ids == []
+
+
+def test_bot_admin_ids_with_trailing_comment() -> None:
+    settings = BotSettings(bot_token="123:test", bot_admin_ids="12345,67890  # админы")
+    assert settings.bot_admin_ids == [12345, 67890]
+
+
+def test_bot_token_comment_is_not_a_token() -> None:
+    """Пусто с комментарием — это заглушка, а не «токен» из текста комментария."""
+    settings = BotSettings(bot_token="# токен от @BotFather")
+    assert settings.bot_token.get_secret_value() == ""
+
+
 @pytest.mark.asyncio
 async def test_httpx_client_builds_with_settings_proxy() -> None:
     """Ровно тот вызов, что в lifespan (app/main.py): клиент обязан создаться."""

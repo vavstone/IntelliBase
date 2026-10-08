@@ -11,6 +11,17 @@ from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
+def _strip_inline_comment(value: str) -> str:
+    """Отсекает inline-комментарий, попавший в значение.
+
+    `BOT_ADMIN_IDS=  # админы через запятую` читается и docker compose, и
+    python-dotenv так, что комментарий становится значением целиком (если перед
+    ним самого значения не было). Раньше это роняло бота на старте: `int()` от
+    текста комментария — находка проверки чистого клона 08.10.
+    """
+    return value.split("#", 1)[0].strip()
+
+
 class BotSettings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -41,11 +52,17 @@ class BotSettings(BaseSettings):
             return None
         return v
 
+    @field_validator("bot_token", mode="before")
+    @classmethod
+    def _clean_bot_token(cls, v):
+        """Комментарий рядом с пустым значением не должен выглядеть как токен."""
+        return _strip_inline_comment(v) if isinstance(v, str) else v
+
     @field_validator("bot_admin_ids", mode="before")
     @classmethod
     def _parse_ids(cls, v):
         if isinstance(v, str):
-            return [int(x) for x in v.split(",") if x.strip()]
+            return [int(x) for x in _strip_inline_comment(v).split(",") if x.strip()]
         return v
 
     @field_validator("admin_chat_id", mode="before")
