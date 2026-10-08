@@ -230,6 +230,36 @@ curl -s -X POST http://localhost:8000/documents/reindex \
   -d '{"mode":"full"}'   # или "incremental" / "files"
 ```
 
+### Антивирус с TLS-инспекцией (Kaspersky и аналоги)
+
+Средства защиты, проверяющие защищённые соединения, подменяют TLS-сертификат своим.
+С хоста это обычно незаметно (`curl.exe` в Windows ходит через системное хранилище,
+куда корень антивируса установлен), а из контейнера ломается всё: сначала проверка
+сертификата, потом — на длинных загрузках — сам поток.
+
+| Где | Симптом | Что делать |
+|-----|---------|------------|
+| Хостовый запуск (`uvicorn` вне Docker) | `SSLCertVerificationError`, часть запросов к DeepSeek падает | `truststore.inject_into_ssl()` до импорта приложения — в `experiments/*.py` уже так |
+| Контейнер, короткие запросы | `CERTIFICATE_VERIFY_FAILED: self-signed certificate in certificate chain` из `httpx`/`requests` | подсунуть корень антивируса контейнеру (ниже) |
+| Контейнер, длинные загрузки | скачивание модели E5 обрывается на середине: в логе `Loading SentenceTransformer model…` и тишина, `llm-service` уходит в `unhealthy` без трейсбека | радикально — добавить процессы Docker Desktop (`com.docker.backend.exe`, `com.docker.build.exe`, `wslservice.exe`) в доверенные приложения антивируса или выключить «Сканирование защищённых соединений»; обход — модель из локального кэша + `HF_HUB_OFFLINE=1` |
+
+Корень антивируса — в контейнер (правок кода и compose не требует: папка `data/` уже
+смонтирована как `/app/data`):
+
+```bash
+# 1. Выгрузить корень: certlm.msc → Доверенные корневые центры сертификации →
+#    сертификат вендора (например «Kaspersky Anti-Virus Personal Root Certificate»)
+#    → Экспорт → Base64 (.cer) → сохранить как data/certs/av-root.pem
+# 2. Собрать бандл внутри контейнера: публичные корни certifi + корень антивируса
+docker compose exec app python -c "import certifi,pathlib;p=pathlib.Path('/app/data/certs/combined-ca.pem');p.write_bytes(pathlib.Path(certifi.where()).read_bytes()+pathlib.Path('/app/data/certs/av-root.pem').read_bytes());print(p)"
+# 3. В .env — ОБЕ переменные и ОБЯЗАТЕЛЬНО на бандл: они заменяют набор корней,
+#    а не дополняют его (с одним корнем антивируса отвалятся остальные хосты):
+#    SSL_CERT_FILE=/app/data/certs/combined-ca.pem
+#    REQUESTS_CA_BUNDLE=/app/data/certs/combined-ca.pem
+docker compose up -d --wait
+docker compose exec app python -c "import httpx;print(httpx.get('https://api.deepseek.com/v1/models',timeout=15).status_code)"   # 401 = TLS проходит
+```
+
 ## Сброс RAG-коллекции
 
 Нужен после смены embed-модели или схемы метаданных (когда инкрементальный

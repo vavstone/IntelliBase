@@ -170,6 +170,8 @@ backoff) при этом отрабатывают первыми — резер�
 | `APP_NAME` | `llm-service-example` | имя приложения |
 | `CORS_ORIGINS` | `["*"]` | список origin |
 | `DEBUG` | `false` | отладка |
+| `SSL_CERT_FILE` | — | CA-бандл для `httpx`/OpenSSL; нужен, если антивирус инспектирует TLS и из контейнера (`CERTIFICATE_VERIFY_FAILED`) — команды в `docs/runbook.md`, «Антивирус с TLS-инспекцией» |
+| `REQUESTS_CA_BUNDLE` | — | то же для `requests` (через него качает `huggingface_hub`); указывать на тот же комбинированный бандл, что и `SSL_CERT_FILE` |
 
 ## Тихий режим HuggingFace (`app/core/hf_env.py`)
 
@@ -183,3 +185,5 @@ backoff) при этом отрабатывают первыми — резер�
 | `HF_HUB_VERBOSITY` | `error` | убирает предупреждение «You are sending unauthenticated requests to the HF Hub» |
 | `HF_HUB_DISABLE_PROGRESS_BARS` | `1` | убирает прогресс-бар загрузки |
 | `TRANSFORMERS_VERBOSITY` | `error` | убирает прогресс-бар «Loading weights» при загрузке embedding-модели |
+| `HF_CACHE_DIR` | — | путь к уже скачанному кэшу моделей на хосте: compose монтирует его в контейнер (`/home/appuser/.cache/huggingface`), и E5 (2.2 ГБ) не скачивается заново |
+| `HF_HUB_OFFLINE` | — | `1` запрещает любые сетевые обращения к huggingface.co: модель берётся только из локального кэша. Обход для машин с нестабильным каналом до HuggingFace (см. `docs/runbook.md`, «Антивирус с TLS-инспекцией») |
