@@ -2,7 +2,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -65,6 +65,22 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     cache_ttl_seconds: int = 3600
     proxy_url: str | None = None
+
+    @field_validator("proxy_url", mode="before")
+    @classmethod
+    def _blank_proxy_to_none(cls, value: object) -> object:
+        """`PROXY_URL=` из .env — это «без прокси», а не URL.
+
+        Пустая строка доходит до `httpx.AsyncClient(proxy=...)`, где httpx
+        падает с ValueError («Unknown scheme for proxy URL») и роняет весь
+        lifespan — на чистом клоне приложение не стартовало вовсе
+        (проверка 08.10 на машине без прокси). None httpx понимает как
+        «прокси не задан» и смотрит на переменные окружения.
+        """
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
     llm: LLMSettings = Field(default_factory=LLMSettings)
     embedding: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
 

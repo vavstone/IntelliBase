@@ -68,6 +68,17 @@ head -c 20 entrypoint.sh | od -c   # ожидается "#!/bin/sh\n", без \r
 git config --get core.autocrlf     # true — не страшно, .gitattributes перекрывает
 ```
 
+### `make up` падает на «dependency failed to start: container llm-service is unhealthy»
+
+`docker logs llm-service` показывает `ValueError: Unknown scheme for proxy URL` и
+`ERROR: Application startup failed. Exiting.` — значит `PROXY_URL` содержит не
+URL. Пустое значение из `.env.example` (`PROXY_URL=`) — тоже не URL: httpx
+принимает `None`, но не пустую строку, и падает прямо в lifespan на
+`app/main.py` (`httpx.AsyncClient(proxy=settings.proxy_url)`), до старта uvicorn.
+С 08.10 пустая строка приводится к `None` валидатором `proxy_url`
+(`app/core/config.py`, `bot/config.py`). В образе, собранном раньше, лечится
+удалением строки `PROXY_URL` из `.env` целиком — пересборка не нужна.
+
 ### Если команда «висит», а сервис жив (Windows + Docker Desktop)
 
 Запрос к `localhost:<порт>` не отвечает до таймаута, при этом `127.0.0.1:<порт>`

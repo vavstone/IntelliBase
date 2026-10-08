@@ -19,7 +19,7 @@ uv run pytest tests/ -v
 
 | Группа | Путь | Что покрывает | Инфраструктура |
 |--------|------|---------------|----------------|
-| unit | `tests/unit/` | LLM-сервис (моки), PII, схемы, чанкинг, ingestion (чистые функции), reranker | в основном нет |
+| unit | `tests/unit/` | LLM-сервис (моки), PII, схемы, чанкинг, ingestion (чистые функции), reranker, конфиг (пустой `PROXY_URL` → `None`) | в основном нет |
 | chat | `tests/chat/` | роуты, контекст, промпты, RAG-диалог, контракт репозитория | частично да |
 | bot | `tests/bot/` | админ, backend_client, FSM, streaming, HIL-кнопки агента (`test_agent_hil.py`) | нет (моки) |
 | admin | `tests/admin/` | админ-роуты, rag-репозиторий | частично |

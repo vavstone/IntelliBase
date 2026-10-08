@@ -58,7 +58,7 @@ backoff) при этом отрабатывают первыми — резер�
 | `CHAT_CONTEXT_WINDOW` | `10` | sliding window (сообщений) |
 | `REDIS_URL` | `redis://localhost:6379/0` | кэш LLM |
 | `CACHE_TTL_SECONDS` | `3600` | TTL кэша (сек) |
-| `PROXY_URL` | — | прокси для внешних API (OpenAI/OpenRouter); DeepSeek ходит напрямую |
+| `PROXY_URL` | — | прокси для внешних API (OpenAI/OpenRouter); DeepSeek ходит напрямую; пусто = без прокси (пустая строка приводится к `None`) |
 
 ## Qdrant
 

@@ -33,6 +33,14 @@ class BotSettings(BaseSettings):
     admin_chat_id: int | None = None
     proxy_url: str | None = None
 
+    @field_validator("proxy_url", mode="before")
+    @classmethod
+    def _empty_proxy_to_none(cls, v):
+        """Пустую строку из .env превращаем в None: httpx на `proxy=""` падает."""
+        if isinstance(v, str) and v.strip() == "":
+            return None
+        return v
+
     @field_validator("bot_admin_ids", mode="before")
     @classmethod
     def _parse_ids(cls, v):
