@@ -2,16 +2,17 @@
 
 Отвечает на вопрос «система жива и отвечает», а не «контейнеры запущены»:
 health приложения, готовность зависимостей (Redis проверяется через `/ready`),
-наличие проиндексированного корпуса в Qdrant, доступность Phoenix и — по флагу
-`--with-rag` — сквозной вопрос к RAG с проверкой цитат.
+ответ бота, наличие проиндексированного корпуса в Qdrant, доступность Phoenix
+и — по флагу `--with-rag` — сквозной вопрос к RAG с проверкой цитат.
 
 Запуск:
     make smoke                                    # быстрые проверки
     uv run python scripts/smoke.py --with-rag     # + сквозной вопрос к RAG
 
 Адреса берутся из окружения, затем из `.env`, затем из дефолтов (localhost).
-Внутри контейнера окружение уже содержит нужные значения (`QDRANT_URL` и т.п.),
-поэтому один и тот же скрипт работает и на хосте, и через `docker compose exec`.
+Внутри контейнера окружение уже содержит нужные значения (`QDRANT_URL`, `BOT_URL`
+и т.п.), поэтому один и тот же скрипт работает и на хосте, и через
+`docker compose exec`.
 
 Код возврата: 0 — критичные проверки прошли, 1 — есть провал.
 """
@@ -90,20 +91,11 @@ def http(
         return 0, f"{type(exc).__name__}: {exc}"
 
 
-def check_containers() -> list[Check]:
-    """Статусы контейнеров стека.
+def service_states() -> list[tuple[str, str, str]] | None:
+    """Статусы контейнеров через `docker compose ps`; None — docker недоступен.
 
-    Изнутри контейнера docker недоступен, поэтому `make smoke` проверяет
-    контейнеры на хосте и передаёт результат в SMOKE_CONTAINERS: пусто — все
-    живы, иначе список проблемных вида `service:state/health`.
+    Изнутри контейнера `docker` нет — там сервисы проверяются по сети (check_bot).
     """
-    host_report = os.environ.get("SMOKE_CONTAINERS")
-    if host_report is not None:
-        host_report = host_report.strip()
-        if not host_report:
-            return [Check("контейнеры", OK, "все healthy (проверено с хоста)")]
-        return [Check("контейнеры", FAIL, host_report[:200])]
-
     try:
         out = subprocess.run(
             ["docker", "compose", "ps", "--format", "json"],
@@ -113,11 +105,11 @@ def check_containers() -> list[Check]:
             cwd=str(Path(__file__).resolve().parent.parent),
         )
     except (OSError, subprocess.SubprocessError):
-        return [Check("docker compose ps", SKIP, "docker недоступен — проверка пропущена")]
+        return None
     if out.returncode != 0:
-        return [Check("docker compose ps", SKIP, out.stderr.strip()[:120] or "нет вывода")]
+        return None
 
-    checks: list[Check] = []
+    states: list[tuple[str, str, str]] = []
     for line in out.stdout.splitlines():
         line = line.strip()
         if not line:
@@ -126,15 +118,41 @@ def check_containers() -> list[Check]:
             item = json.loads(line)
         except json.JSONDecodeError:
             continue
-        service = item.get("Service", "?")
-        state, health = item.get("State", "?"), item.get("Health", "")
-        if state != "running":
-            checks.append(Check(f"контейнер {service}", FAIL, f"состояние: {state}"))
-        elif health and health != "healthy":
-            checks.append(Check(f"контейнер {service}", FAIL, f"health: {health}"))
-        else:
-            checks.append(Check(f"контейнер {service}", OK, health or state))
-    return checks
+        states.append((item.get("Service", "?"), item.get("State", "?"), item.get("Health", "")))
+    return states
+
+
+def check_bot() -> Check:
+    """Бот отвечает на своём `/health` (порт 9000).
+
+    Внутри сети compose адрес берётся из `BOT_URL` (`http://bot:9000`). Если так
+    достучаться не удалось, а мы на хосте — порт 9000 наружу не проброшен (в
+    compose он только `expose`) — смотрим состояние контейнера через
+    `docker compose ps`.
+
+    Раньше статусы контейнеров собирал make на хосте и передавал их сюда через
+    SMOKE_CONTAINERS. Цель в Makefile требовала POSIX-shell (if/then/awk) и на
+    Windows, где make исполняет рецепты через cmd.exe, падала целиком — вместе
+    со всеми проверками.
+    """
+    url = os.environ.get("SMOKE_BOT_URL") or os.environ.get("BOT_URL", "http://127.0.0.1:9000")
+    # localhost на Windows+Docker Desktop уходит в IPv6 и «залипает» (см. main).
+    url = url.rstrip("/").replace("//localhost", "//127.0.0.1")
+
+    status, body = http(f"{url}/health", timeout=5.0)
+    if status == 200:
+        return Check("bot /health", OK, url)
+
+    states = service_states()
+    if states is None:
+        return Check("bot /health", FAIL, f"{url} не отвечает ({body[:80]})")
+    for service, state, health in states:
+        if service != "bot":
+            continue
+        if state == "running" and health in ("", "healthy"):
+            return Check("bot", OK, f"контейнер {health or state} (порт наружу не проброшен)")
+        return Check("bot", FAIL, f"контейнер {state}/{health or 'без healthcheck'}")
+    return Check("bot", FAIL, f"{url} не отвечает, и контейнера bot нет в compose")
 
 
 def check_app(base_url: str) -> list[Check]:
@@ -233,8 +251,8 @@ def main() -> int:
     phoenix_required = os.environ.get("PHOENIX_ENABLED", "false").lower() in {"1", "true", "yes"}
 
     checks: list[Check] = []
-    checks += check_containers()
     checks += check_app(app_url)
+    checks.append(check_bot())
     checks.append(check_qdrant(qdrant_url, collection))
     checks.append(check_phoenix(phoenix_url, phoenix_required))
     if args.with_rag:

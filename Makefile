@@ -8,7 +8,12 @@
 #   make down    остановить стек
 #   make help    список всех целей
 
-# Рецепты написаны на POSIX sh: работает и в минимальных образах, где bash нет.
+# Рецепты — одиночные команды без shell-логики (if/then, awk, grep): на Windows
+# make нередко исполняет их через cmd.exe, и любая POSIX-конструкция валит цель
+# целиком. Находка проверки чистого клона 08.10: `make up` работал, а `make smoke`
+# (там была логика с if/awk) падал, не дойдя до самой проверки. Поэтому вся
+# логика переехала в scripts/smoke.py, а список целей для `help` продублирован
+# текстом, а не собирается грепом из `##`-комментариев.
 SHELL := /bin/sh
 .DEFAULT_GOAL := help
 
@@ -16,7 +21,7 @@ COMPOSE ?= docker compose
 UV ?= uv
 # Корпус для индексации (переопределяется: make ingest CORPUS=data/kb).
 CORPUS ?= data/demo_kb
-# Дополнительные аргументы smoke (например, SMOKE_ARGS="--with-rag").
+# Дополнительные аргументы smoke (например: make smoke SMOKE_ARGS=--with-rag).
 SMOKE_ARGS ?=
 # Дополнительные аргументы metrics (например, METRICS_ARGS="--window-hours 168").
 METRICS_ARGS ?=
@@ -27,13 +32,28 @@ EVAL_ARGS ?=
 GOLDEN ?= tests/eval/golden_dataset_demo.json
 LABEL ?= demo
 
-.PHONY: help up down restart ps logs smoke smoke-rag test test-all ingest reindex eval metrics thresholds shell clean
+.PHONY: help up down restart ps logs smoke smoke-rag smoke-host test test-all ingest reindex eval metrics thresholds shell clean
 
 help: ## Список целей
-	@echo "IntelliBase — доступные команды:"
-	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
-		| sort \
-		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
+	@echo IntelliBase - доступные команды:
+	@echo   up          поднять стек (app + bot + инфраструктура) и дождаться готовности
+	@echo   smoke       проверить живость: сервисы, /health, /ready, Qdrant, Phoenix
+	@echo   smoke-rag   то же + сквозной вопрос к RAG (нужны LLM и корпус)
+	@echo   smoke-host  smoke, когда приложение запущено на хосте (uvicorn вне Docker)
+	@echo   down        остановить стек (данные в томах сохраняются)
+	@echo   restart     перезапустить app и bot без пересборки
+	@echo   ps          статус сервисов
+	@echo   logs        логи app и bot (Ctrl+C - выйти)
+	@echo   test        быстрые тесты (нужен uv)
+	@echo   test-all    полный прогон тестов (нужны uv и поднятый стек)
+	@echo   ingest      инкрементальная индексация корпуса
+	@echo   reindex     полная переиндексация (чистит коллекцию и docstore)
+	@echo   eval        оценка качества RAG (RAGAS, нужен uv)
+	@echo   metrics     метрики: p95, cache hit rate, последний прогон RAGAS
+	@echo   thresholds  сверка последнего прогона RAGAS с порогами
+	@echo   users       доступ к боту: make users ARGS=list
+	@echo   shell       bash внутри контейнера app
+	@echo   clean       остановить стек и удалить тома (ОСТОРОЖНО)
 
 up: ## Поднять стек (app + bot + инфраструктура) и дождаться готовности
 	$(COMPOSE) up -d --build --wait
@@ -51,20 +71,14 @@ ps: ## Статус сервисов
 logs: ## Логи app и bot (Ctrl+C — выйти)
 	$(COMPOSE) logs -f app bot
 
-smoke: ## Проверить живость стека: контейнеры, health, Qdrant, Phoenix
-	@if $(COMPOSE) ps --status running --services 2>/dev/null | grep -qx app; then \
-		unhealthy=$$($(COMPOSE) ps --format '{{.Service}} {{.State}} {{.Health}}' \
-			| awk '$$2 != "running" || ($$3 != "" && $$3 != "healthy") \
-				{ print $$1 ":" $$2 "/" $$3 }'); \
-		$(COMPOSE) exec -T -e SMOKE_PHOENIX_URL=http://phoenix:6006 \
-			-e SMOKE_CONTAINERS="$$unhealthy" \
-			app python scripts/smoke.py $(SMOKE_ARGS); \
-	else \
-		$(UV) run python scripts/smoke.py $(SMOKE_ARGS); \
-	fi
+smoke: ## Проверить живость стека: сервисы, health, Qdrant, Phoenix
+	$(COMPOSE) exec -T -e SMOKE_PHOENIX_URL=http://phoenix:6006 app python scripts/smoke.py $(SMOKE_ARGS)
 
 smoke-rag: ## Smoke + сквозной вопрос к RAG (нужны LLM и наполненный корпус)
-	@$(MAKE) smoke SMOKE_ARGS="--with-rag"
+	@$(MAKE) smoke SMOKE_ARGS=--with-rag
+
+smoke-host: ## То же, когда приложение запущено на хосте (uvicorn вне Docker)
+	$(UV) run python scripts/smoke.py $(SMOKE_ARGS)
 
 test: ## Быстрые тесты (без интеграционных, требующих PG/lifespan)
 	$(UV) run pytest tests/ -q \

@@ -172,7 +172,7 @@ LLM__DEEPSEEK_API_KEY=sk-...
 ```bash
 cp .env.example .env      # заполнить по выбранному варианту (см. выше)
 make up                   # поднять стек и дождаться готовности
-make smoke                # проверить живость: контейнеры, /health, Qdrant, Phoenix
+make smoke                # проверить живость: сервисы (app, bot), /health, Qdrant, Phoenix
 make smoke-rag            # сквозной вопрос к RAG с проверкой источников
 ```
 
