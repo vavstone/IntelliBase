@@ -53,8 +53,8 @@ uv add docx2txt                            # DOCX-парсер SimpleDirectoryRe
 | `sentence-transformers` | 5.6.0 |
 
 Модели: эмбеддинги `intfloat/multilingual-e5-large` (dim 1024, локально), LLM
-`gemma3:4b` через Ollama (`temperature=0`). Всё настраивается в `app/core/config.py`
-/ `.env`, не хардкодом.
+`qwen3:8b` через Ollama (`temperature=0`; финальный выбор — Б5.6, см.
+`rag_evaluation.md`). Всё настраивается в `app/core/config.py` / `.env`, не хардкодом.
 
 ## Решение по коллекции
 
@@ -330,15 +330,15 @@ flowchart LR
 опциональное поле `category` (slug ПС). При заданном slug retrieval сужается
 строгой фильтрацией на уровне векторного хранилища (`build_filters(categories=[…])`,
 KEYWORD-индекс по полю `category` в Qdrant). Категория = одно ПС (таксономия в
-`kb_categories`, см. `docs/tech_debt/category-taxonomy-*.md`); slug — канонический
-ключ в папке `data/kb/`, метаданных Qdrant, фильтре и callback бота.
+`kb_categories`); slug — канонический ключ в папке `data/kb/`, метаданных Qdrant,
+фильтре и callback бота.
 
 ## Модели
 
 | Роль | Модель | Примечание |
 |------|--------|-----------|
 | Эмбеддинги | `intfloat/multilingual-e5-large` (dim 1024) | self-hosted, E5-префиксы `query:`/`passage:` |
-| LLM | `gemma3:4b` (Ollama, temperature=0) | `rag_llm_model` |
+| LLM | `qwen3:8b` (Ollama, temperature=0) | `rag_llm_model`, финальный выбор Б5.6 |
 | Реранкер | `BAAI/bge-reranker-v2-m3` | опционально, ~2.2 ГБ |
 
 ## Инфраструктура

@@ -108,7 +108,7 @@ uv run python -m bot                            # бот (отдельный п�
 ```
 
 > Ollama не входит в compose — запускается локально (`ollama serve`). Модели:
-> `qwen2.5:3b` (чат), `gemma3:4b` (RAG).
+> `gemma3:4b` (чат), `qwen3:8b` (RAG, на CPU ~2–4 мин на ответ), `qwen2.5:3b` (резерв).
 
 ## Проверка живости
 

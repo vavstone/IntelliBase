@@ -20,7 +20,7 @@ down_revision: Union[str, Sequence[str], None] = 'f1a2b3c4d5e6'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
-# Таксономия ПС (см. docs/tech_debt/category-taxonomy-ps-*.md, п.2).
+# Таксономия ПС.
 _CATEGORY_SEED: list[tuple[str, str]] = [
     ("tarify", "Тарифы"),
     ("malahit", "Малахит"),

@@ -5,6 +5,17 @@
 Telegram-агентом, который умеет не только отвечать, но и выполнять поручения —
 например, отправить нужный документ коллеге.
 
+## Демонстрация
+
+**Видео-демонстрация (5 мин 40 с):** `https://disk.360.yandex.ru/d/L1cFtnIzGndRsg`
+
+В записи: вопросы по базе со ссылками на источники, честный отказ на вопрос,
+ответа на который в корпусе нет, поручение агенту с подтверждением и отправкой
+файла двум получателям, отказ на постороннего получателя, трейсы в Phoenix
+и метрики качества поиска.
+
+**Презентация:** `https://disk.360.yandex.ru/d/L1cFtnIzGndRsg`
+
 ## Задача и пользователь
 
 **Пользователь** — сотрудник компании, которому нужен ответ по внутренней
@@ -125,29 +136,28 @@ flowchart TB
 
 ## Быстрый старт
 
-Требуется Docker с плагином compose. Для запуска демонстрационного корпуса
-ключей LLM не нужно (работает на локальной Ollama).
+**Что нужно:** Docker с плагином compose (конфигурация стека — `compose.yaml`,
+Docker Compose v2 читает его по умолчанию); 8–16 ГБ RAM; ~20 ГБ диска; интернет
+(Docker Hub, HuggingFace — для скачивания embedding-модели). Команды ниже — через
+`make`; если его нет (частая ситуация на Windows), те же шаги выполняются
+командами `docker compose` — см. «Windows без make» после блока запуска.
+
+Для запуска демонстрационного корпуса (`data/demo_kb` — 18 синтетических
+документов в репозитории, реальные документы не нужны) выберите источник LLM.
+
+**Вариант 1 — локально, без ключей: Ollama** (на CPU медленнее: RAG-ответ
+2–4 минуты). Установите с [ollama.com](https://ollama.com/download), запустите
+и скачайте модели:
 
 ```bash
-cp .env.example .env      # заполнить BOT_TOKEN и ключ LLM (см. ниже)
-make up                   # поднять стек и дождаться готовности
-make smoke                # проверить живость: контейнеры, /health, Qdrant, Phoenix
+ollama pull gemma3:4b      # чат
+ollama pull qwen3:8b       # генерация RAG-ответов
+ollama pull qwen2.5:3b     # резерв при сбое основной модели
 ```
 
-Первый запуск занимает 10–15 минут: сборка образа, скачивание embedding-модели
-(~2 ГБ) и индексация демонстрационного корпуса из `data/demo_kb`
-(18 синтетических документов в репозитории — реальные документы не нужны).
-
-| Сервис | Адрес |
-|---|---|
-| API (FastAPI) | http://localhost:8000 — `/health`, `/ready`, `/docs` |
-| Phoenix (трейсы) | http://localhost:6006 |
-| Qdrant | http://localhost:6333 |
-| Telegram-бот | в составе стека, внутренний HTTP на порту 9000 |
-
-**Ключей нет — что делать.** По умолчанию `.env.example` настроен на локальную
-модель, но `BOT_TOKEN` всё равно нужен: получить у [@BotFather](https://t.me/BotFather).
-Дополнительно можно не поднимать Ollama — тогда укажите облачную модель:
+**Вариант 2 — DeepSeek: облако, работает без VPN, быстро даже на CPU.**
+Нужен ключ; агент по умолчанию использует DeepSeek (с резервом на Ollama).
+Допишите в `.env`:
 
 ```bash
 LLM__DEFAULT_PROVIDER=deepseek
@@ -157,9 +167,47 @@ RAG_LLM_MODEL=deepseek-v4-flash
 LLM__DEEPSEEK_API_KEY=sk-...
 ```
 
-Остальные команды — `make help`:
+Запуск:
 
 ```bash
+cp .env.example .env      # заполнить по выбранному варианту (см. выше)
+make up                   # поднять стек и дождаться готовности
+make smoke                # проверить живость: контейнеры, /health, Qdrant, Phoenix
+make smoke-rag            # сквозной вопрос к RAG с проверкой источников
+```
+
+Первый запуск занимает 10–15 минут: сборка образа, скачивание embedding-модели
+(~2.2 ГБ, из HuggingFace) и индексация демонстрационного корпуса из `data/demo_kb`.
+Если модель уже скачана на хосте, укажите её кэш `HF_CACHE_DIR` в `.env` — старт
+пройдёт без скачивания (см. `docs/runbook.md`).
+
+**Windows без `make`** (а также без `cp`): те же шаги командами compose —
+`copy .env.example .env`, затем:
+
+```bash
+docker compose up -d --build --wait
+docker compose exec -T -e SMOKE_PHOENIX_URL=http://phoenix:6006 app python scripts/smoke.py
+docker compose exec -T -e SMOKE_PHOENIX_URL=http://phoenix:6006 app python scripts/smoke.py --with-rag
+```
+
+| Сервис | Адрес |
+|---|---|
+| API (FastAPI) | http://localhost:8000 — `/health`, `/ready`, `/docs` |
+| Phoenix (трейсы) | http://localhost:6006 |
+| Qdrant | http://localhost:6333 |
+| Telegram-бот | в составе стека, внутренний HTTP на порту 9000 |
+
+**BOT_TOKEN для поднятия не обязателен.** Без него бот стартует в режиме
+заглушки: его HTTP-порт жив, Telegram не опрашивается. Для живого бота возьмите
+токен у [@BotFather](https://t.me/BotFather) и заполните `BOT_TOKEN`; чтобы бот
+отвечал именно вам, добавьте свой chat_id в `BOT_ALLOWED_CHAT_IDS` — по
+умолчанию бот закрыт для всех (см. `docs/runbook.md`, «Доступ к боту»).
+
+Остальные команды — `make help` (для `make test` / `metrics` / `eval` на хосте
+дополнительно нужен `uv`; для запуска стека он не требуется):
+
+```bash
+make smoke-rag    # smoke + сквозной вопрос к RAG (нужны LLM и корпус)
 make test         # быстрые тесты (без PG и lifespan)
 make test-all     # полный прогон (нужна поднятая инфраструктура)
 make metrics      # p95 задержек, cache hit rate, последние числа RAGAS
@@ -201,13 +249,14 @@ make logs / ps / shell / down / clean
 | Переменная | По умолчанию | Назначение |
 |---|---|---|
 | `LLM__DEFAULT_PROVIDER` | `ollama` | провайдер чата: `ollama` / `deepseek` / `openai` / `openrouter` |
-| `LLM__DEFAULT_MODEL` | `qwen2.5:3b` | модель чата |
+| `LLM__DEFAULT_MODEL` | `gemma3:4b` | модель чата (Ollama; облако — `deepseek-v4-flash`) |
 | `LLM__DEEPSEEK_API_KEY` | `sk-...` | ключ DeepSeek (облако, без VPN) |
 | `LLM__FALLBACK_PROVIDER` | `ollama` | резерв при недоступности основного; пусто — выключить |
 | `LLM__FALLBACK_MODEL` | `qwen2.5:3b` | модель резерва |
 | `RAG_DATA_DIR` | `data/demo_kb` | каталог корпуса (папка верхнего уровня = категория) |
 | `RAG_COLLECTION` | `rag_demo` | коллекция Qdrant |
 | `RAG_LLM_PROVIDER` | `ollama` | модель синтеза RAG (может отличаться от чата) |
+| `RAG_LLM_MODEL` | `qwen3:8b` | модель синтеза RAG (на CPU ~2–4 мин на ответ; облако — `deepseek-v4-flash`) |
 | `RAG_CHUNK_SIZE` / `RAG_CHUNK_OVERLAP` | `512` / `64` | параметры чанкинга (выбор обоснован в docs/chunking_experiment.md) |
 | `RAG_TOP_K` | `10` | ширина retrieval |
 | `RAG_SCORE_THRESHOLD` | `0.78` | порог релевантности: ниже — честный отказ без вызова LLM |

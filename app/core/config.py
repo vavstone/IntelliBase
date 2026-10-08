@@ -20,7 +20,8 @@ class LLMSettings(BaseSettings):
     deepseek_api_key: SecretStr = SecretStr("sk-test-placeholder")
     deepseek_base_url: str = "https://api.deepseek.com"
     default_provider: Literal["openai", "ollama", "openrouter", "deepseek"] = "ollama"
-    default_model: str = "qwen2.5:3b"
+    # Модель чата по умолчанию (Ollama) — согласована с .env.example.
+    default_model: str = "gemma3:4b"
     request_timeout: float = 30.0
     max_retries: int = 3
     # Резерв на случай недоступности основного провайдера (нет сети, таймаут,

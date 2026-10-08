@@ -138,13 +138,14 @@ uv run alembic upgrade head
 
 ### Ollama (локальный LLM)
 
-Если используешь `LLM__DEFAULT_PROVIDER=ollama` (текущая настройка), Ollama
-должна быть установлена и запущена отдельно. Модели: `qwen2.5:3b` (чат) и
-`gemma3:4b` (RAG):
+Если используешь `LLM__DEFAULT_PROVIDER=ollama` (настройка по умолчанию в
+`.env.example`), Ollama должна быть установлена и запущена отдельно. Модели:
+`gemma3:4b` (чат), `qwen3:8b` (RAG) и `qwen2.5:3b` (резерв):
 
 ```bash
-ollama pull qwen2.5:3b
 ollama pull gemma3:4b
+ollama pull qwen3:8b
+ollama pull qwen2.5:3b
 ```
 
 ### Phoenix UI

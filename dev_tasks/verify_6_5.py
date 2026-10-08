@@ -798,7 +798,7 @@ def main() -> int:
         "убедиться, что оценки судьи выставлены одним и тем же промптом для обеих реализаций",
         "сверить схему в docs/architecture-multi-agent.md с реальным выводом draw_mermaid()",
         "сверить числа в отчёте с experiments/results.json (без «причёсывания»)",
-        "после ДЗ обновить docs/README.md и CLAUDE.md (конвенция проекта)",
+        "после ДЗ обновить docs/README.md (конвенция проекта)",
     ]
     for msg in manual:
         print(f"   - {msg}")

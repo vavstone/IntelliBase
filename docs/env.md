@@ -3,9 +3,6 @@
 Источник истины — `app/core/config.py` (pydantic-settings, префиксы и `__` для
 вложенных групп). Шаблон — `.env.example` (реальные ключи — в `.env`, в git не попадает).
 
-> ⚠️ Известное расхождение (сверить при настройке):
-> - `LLM__DEFAULT_MODEL`: дефолт `qwen2.5:3b` (config.py) vs `gemma3:4b` (.env.example).
-
 ## Служебные токены (сменить перед продом)
 
 | Переменная | Дефолт | Назначение |
@@ -22,7 +19,7 @@
 | Переменная | Дефолт | Назначение |
 |-----------|--------|------------|
 | `LLM__DEFAULT_PROVIDER` | `ollama` | `ollama` / `openai` / `openrouter` / `deepseek` |
-| `LLM__DEFAULT_MODEL` | `qwen2.5:3b` | модель чата по умолчанию |
+| `LLM__DEFAULT_MODEL` | `gemma3:4b` | модель чата по умолчанию (Ollama; облако — `deepseek-v4-flash`) |
 | `LLM__OLLAMA_BASE_URL` | `http://localhost:11434/v1` | эндпоинт Ollama |
 | `LLM__OPENAI_BASE_URL` | `https://api.openai.com/v1` | эндпоинт OpenAI |
 | `LLM__OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` | эндпоинт OpenRouter |
@@ -80,8 +77,8 @@ backoff) при этом отрабатывают первыми — резер�
 | `RAG_COLLECTION` | `rag_demo` | рабочая коллекция LlamaIndex (под демо-корпус; под рабочий — `rag_block_05`) |
 | `RAG_COLLECTION_BARE` | `rag_block_03_bare` | bare-metal сравнение (Б5.3) |
 | `RAG_DOCSTORE_PATH` | `var/rag_docstore.json` | состояние инкрементальной индексации |
-| `RAG_LLM_MODEL` | `gemma3:4b` | LLM генерации RAG-ответа |
-| `RAG_LLM_TIMEOUT` | `120` | таймаут генерации (сек) |
+| `RAG_LLM_MODEL` | `qwen3:8b` | LLM генерации RAG-ответа (выбор Б5.6) |
+| `RAG_LLM_TIMEOUT` | `600` | таймаут генерации (сек; qwen3:8b на CPU до ~5 мин) |
 | `RAG_LLM_CONTEXT_WINDOW` | `8192` | контекстное окно LLM |
 | `RAG_TOP_K` | `10` | ширина retrieval (similarity_top_k) |
 | `RAG_CHUNK_SIZE` | `512` | размер чанка |

@@ -569,7 +569,7 @@ def main() -> int:
         "curl -N на /agent/stream: виден поток событий, в паузе __interrupt__, после resume продолжается",
         "pytest tests/test_agent_persistent.py — реально зелёный без Postgres",
         "psql -d intellibase -c '\\dt' показывает 4 таблицы LangGraph после setup()",
-        "после ДЗ обновить docs/README.md и CLAUDE.md (конвенция проекта)",
+        "после ДЗ обновить docs/README.md (конвенция проекта)",
     ]
     for msg in manual:
         print(f"   - {msg}")
