@@ -133,7 +133,10 @@ async def agent_chat(
 
 class AgentResumeRequest(BaseModel):
     thread_id: str
-    decision: bool | str = True
+    # Решение обязательно, без дефолта: на опасном действии «поле не передали»
+    # должно означать отказ запроса, а не согласие. Раньше дефолт был True —
+    # POST без поля молча подтверждал отправку (fail-open на HIL).
+    decision: bool | str | None = None
     # Тот же инициатор, что и в /agent/chat: узел отправки перезапускается на
     # resume с конфигом текущего вызова, поэтому chat_id нужен и здесь.
     chat_id: str | None = None
@@ -145,6 +148,11 @@ async def agent_resume(
 ) -> AgentChatResponse:
     if graph is None:
         raise HTTPException(status_code=503, detail="агентный граф не инициализирован")
+    if req.decision is None:
+        raise HTTPException(
+            status_code=422,
+            detail="decision обязателен: true/\"approve\" — подтвердить, false/\"reject\" — отменить",
+        )
     config = _config(
         req.thread_id,
         delivery_chat_id=req.chat_id,

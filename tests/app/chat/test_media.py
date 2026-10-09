@@ -152,11 +152,15 @@ async def test_media_to_part_jpeg_returns_image_url_with_data_uri():
 
 @pytest.mark.anyio
 async def test_media_to_part_unsupported_type_raises():
-    """Unsupported MIME type raises ValueError."""
+    """Неподдерживаемый MIME → ValueError с понятным пользователю текстом.
+
+    Сообщение показывается в чате (send_message ловит и шлёт токеном),
+    поэтому оно на русском и перечисляет, что можно прислать.
+    """
     from app.chat.media import media_to_part
 
     media = _fake_upload_file("application/zip", b"dummy", "file.zip")
     llm_client = MagicMock()
 
-    with pytest.raises(ValueError, match="Unsupported media type"):
+    with pytest.raises(ValueError, match="не поддерживается"):
         await media_to_part(media, llm_client)

@@ -338,3 +338,210 @@ def test_requested_recipient_reads_tool_call() -> None:
         ],
     )
     assert requested_recipient(message) == "42"
+
+
+# --- устойчивость цикла: закрытие tool_calls и ошибки инструментов ----------
+
+
+def _dangling_tool_calls(messages) -> list[str]:
+    """tool_call_id, на которые в истории нет ToolMessage-ответа.
+
+    Такие «висячие» вызовы ломают следующий запрос к провайдеру (400), поэтому
+    инвариант «каждый tool_call закрыт ответом» проверяется после каждого прогона.
+    """
+    answered = {
+        m.tool_call_id for m in messages if getattr(m, "type", "") == "tool"
+    }
+    pending: list[str] = []
+    for m in messages:
+        for call in getattr(m, "tool_calls", None) or []:
+            if call.get("id") not in answered:
+                pending.append(call.get("id"))
+    return pending
+
+
+class MultiCallChat:
+    """Заглушка, возвращающая ДВА вызова в одном сообщении: безопасный и опасный.
+
+    Так модель ведёт себя регулярно («найди и отправь»), а граф исторически
+    обрабатывал только опасный — безопасный оставался без ответа.
+    """
+
+    def __init__(self, chat_ids: list[str] | None = None) -> None:
+        self.chat_ids = chat_ids if chat_ids is not None else [INITIATOR]
+        self.calls = 0
+
+    def bind_tools(self, tools):  # noqa: ANN001
+        return self
+
+    async def ainvoke(self, messages):  # noqa: ANN001
+        self.calls += 1
+        if any(getattr(m, "type", "") == "tool" for m in messages):
+            return AIMessage(content="Готово.", id="ai-final-multi")
+        return AIMessage(
+            content="",
+            id="ai-multi",
+            tool_calls=[
+                {
+                    "name": "get_current_time",
+                    "args": {},
+                    "id": "call-safe",
+                    "type": "tool_call",
+                },
+                {
+                    "name": "send_telegram_message",
+                    "args": {"chat_ids": self.chat_ids, "text": "текст"},
+                    "id": "call-danger",
+                    "type": "tool_call",
+                },
+            ],
+        )
+
+
+@pytest.mark.asyncio
+async def test_multiple_tool_calls_leave_no_dangling_calls():
+    """Поиск и отправка одним шагом: на ОБА вызова есть ответ, история консистентна."""
+    saver_cm = AsyncSqliteSaver.from_conn_string(":memory:")
+    saver = await saver_cm.__aenter__()
+    await saver.setup()
+    send_fn = AsyncMock(return_value="отправлено")
+    g = build_agent(
+        saver,
+        MultiCallChat([INITIATOR]),
+        [get_current_time],
+        send_fn,
+        resolve_document=_resolve_document,
+    )
+    try:
+        config = _config("t-multi")
+        result = await g.ainvoke(_initial(), config)
+        assert "__interrupt__" in result  # пауза на опасном вызове
+        result = await g.ainvoke(Command(resume=True), config)
+        assert result["sent"] is True
+        assert send_fn.call_count == 1  # side-effect ровно один
+        assert _dangling_tool_calls(result["messages"]) == []
+    finally:
+        await saver_cm.__aexit__(None, None, None)
+
+
+@pytest.mark.asyncio
+async def test_multiple_tool_calls_rejected_send_also_closes_all():
+    """Отказ по получателю в мульти-вызове: тоже без «висячих» tool_calls."""
+    saver_cm = AsyncSqliteSaver.from_conn_string(":memory:")
+    saver = await saver_cm.__aenter__()
+    await saver.setup()
+    send_fn = AsyncMock()
+    g = build_agent(
+        saver,
+        MultiCallChat([FOREIGN]),
+        [get_current_time],
+        send_fn,
+        resolve_document=_resolve_document,
+    )
+    try:
+        result = await g.ainvoke(_initial(), _config("t-multi-reject"))
+        assert "__interrupt__" not in result
+        send_fn.assert_not_called()
+        assert _dangling_tool_calls(result["messages"]) == []
+    finally:
+        await saver_cm.__aexit__(None, None, None)
+
+
+class BrokenToolChat:
+    """Заглушка, вызывающая `get_current_time` с несуществующим поясом (`МСК`).
+
+    Это реальный сценарий: `ZoneInfo("МСК")` бросает ZoneInfoNotFoundError —
+    раньше исключение роняло весь прогон и оставляло неотвеченный tool_call.
+    """
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def bind_tools(self, tools):  # noqa: ANN001
+        return self
+
+    async def ainvoke(self, messages):  # noqa: ANN001
+        self.calls += 1
+        if any(getattr(m, "type", "") == "tool" for m in messages):
+            return AIMessage(content="Готово после ошибки.", id="ai-final-broken")
+        return AIMessage(
+            content="",
+            id="ai-broken",
+            tool_calls=[
+                {
+                    "name": "get_current_time",
+                    "args": {"timezone": "МСК"},
+                    "id": "call-broken",
+                    "type": "tool_call",
+                }
+            ],
+        )
+
+
+@pytest.mark.asyncio
+async def test_failing_tool_is_reported_not_fatal():
+    """Ошибка инструмента уходит модели как результат, прогон не падает."""
+    saver_cm = AsyncSqliteSaver.from_conn_string(":memory:")
+    saver = await saver_cm.__aenter__()
+    await saver.setup()
+    g = build_agent(
+        saver,
+        BrokenToolChat(),
+        [get_current_time],
+        AsyncMock(),
+        resolve_document=_resolve_document,
+    )
+    try:
+        result = await g.ainvoke(_initial(), _config("t-broken"))
+        errors = [t for t in result["tool_results"] if "error" in str(t["result"])]
+        assert errors, result["tool_results"]
+        assert _dangling_tool_calls(result["messages"]) == []
+        assert result["messages"][-1].content == "Готово после ошибки."
+    finally:
+        await saver_cm.__aexit__(None, None, None)
+
+
+class LoopChat:
+    """Всегда просит один и тот же безопасный инструмент — до лимита итераций."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def bind_tools(self, tools):  # noqa: ANN001
+        return self
+
+    async def ainvoke(self, messages):  # noqa: ANN001
+        self.calls += 1
+        return AIMessage(
+            content="",
+            id=f"ai-loop-{self.calls}",
+            tool_calls=[
+                {
+                    "name": "get_current_time",
+                    "args": {},
+                    "id": f"call-loop-{self.calls}",
+                    "type": "tool_call",
+                }
+            ],
+        )
+
+
+@pytest.mark.asyncio
+async def test_iteration_limit_closes_pending_calls():
+    """Лимит итераций не оставляет «висячих» вызовов (иначе тред ломается навсегда)."""
+    saver_cm = AsyncSqliteSaver.from_conn_string(":memory:")
+    saver = await saver_cm.__aenter__()
+    await saver.setup()
+    g = build_agent(
+        saver,
+        LoopChat(),
+        [get_current_time],
+        AsyncMock(),
+        resolve_document=_resolve_document,
+    )
+    try:
+        result = await g.ainvoke(_initial(), _config("t-loop"))
+        assert any("Превышен лимит" in str(m.content) for m in result["messages"])
+        assert _dangling_tool_calls(result["messages"]) == []
+    finally:
+        await saver_cm.__aexit__(None, None, None)

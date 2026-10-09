@@ -1,5 +1,7 @@
 import asyncio
 import os
+import re
+import socket
 import pytest
 import pytest_asyncio
 from pathlib import Path
@@ -18,6 +20,26 @@ from app.chat.repository import ChatRepository
 from app.core.config import get_settings
 
 load_dotenv()
+
+
+def _postgres_available() -> bool:
+    """Живой ли Postgres из DATABASE_URL (проверка TCP-портом).
+
+    PG-часть контракта без поднятой инфраструктуры должна ПРОПУСКАТЬСЯ, а не
+    падать: «make test» позиционируется как прогон без обязательного стека
+    (находка предсдаточного аудита 09.10 — раньше здесь было 7 ошибок).
+    """
+    url = os.getenv("DATABASE_URL_FOR_TESTS") or get_settings().database_url
+    m = re.search(r"@([^:/@]+):(\d+)", url)
+    host, port = (m.group(1), int(m.group(2))) if m else ("localhost", 5432)
+    try:
+        with socket.create_connection((host, port), timeout=2):
+            return True
+    except OSError:
+        return False
+
+
+_PG_AVAILABLE = _postgres_available()
 
 # ===== Вспомогательные функции для тестовой БД =====
 
@@ -109,7 +131,12 @@ def chat_repository(request) -> ChatRepository:
     Параметризованный диспетчер: выбирает json- или postgres-репозиторий.
     Синхронный по замыслу: async-фикстуры поднимаются через getfixturevalue
     вне уже запущенного event loop (иначе pg_engine лениво не поднять).
+    PG-ветка без живого Postgres скипается (JSON-ветка продолжает идти).
     """
+    if request.param == "postgres_chat_repository" and not _PG_AVAILABLE:
+        pytest.skip(
+            "Нужен живой Postgres: docker compose -f compose.infra.yaml up -d db"
+        )
     return request.getfixturevalue(request.param)
 
 

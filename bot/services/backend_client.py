@@ -111,6 +111,12 @@ class BackendClient:
             headers=headers,
             timeout=120.0,
         ) as r:
+            if r.status_code >= 400:
+                # Тело ошибки нужно вызывающему: handle_backend_error читает
+                # detail модерации (403 → «нарушает правила сервиса»). На
+                # стриминговом ответе json() без предварительного чтения падает
+                # httpx.ResponseNotRead, и бот показывал общий «Доступ запрещён».
+                await r.aread()
             r.raise_for_status()
             async for line in r.aiter_lines():
                 if not line.startswith("data: "):

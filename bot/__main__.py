@@ -15,6 +15,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 
 from bot.config import get_bot_settings
 from bot.handlers import register_routers
+from bot.handlers.errors import on_unhandled_error
 from bot.middlewares import AccessMiddleware
 from bot.services.alert_drain import drain_alerts
 from bot.services.backend_client import BackendClient
@@ -82,6 +83,9 @@ async def main() -> None:
     dp.update.outer_middleware(AccessMiddleware(backend))
 
     register_routers(dp)
+    # Последний рубеж: непойманное исключение в хендлере не должно
+    # превращаться в молчание — пользователь получает честный ответ.
+    dp.errors.register(on_unhandled_error)
 
     api = build_api(bot, settings.internal_token.get_secret_value())
     config = uvicorn.Config(

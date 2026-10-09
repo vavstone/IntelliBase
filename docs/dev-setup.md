@@ -161,7 +161,7 @@ ollama pull qwen2.5:3b
 
 ### Production-сборка через Docker
 
-Оригинальный `compose.yaml` (с 4 сервисами, включая app) остался без изменений:
+Полный `compose.yaml` (шесть сервисов: app, bot, redis, db, qdrant, phoenix) остался без изменений:
 
 ```bash
 docker compose up -d

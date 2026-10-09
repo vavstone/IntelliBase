@@ -35,8 +35,17 @@ def filter_output(answer: str, system_prompt: str, canary: str) -> str:
         if pat.search(answer):
             raise ValueError(f"suspicious instruction pattern detected: {pat.pattern}")
 
-    # 5. Script injection в ответе
-    if re.search(r"<script|javascript:|onerror|s*=", answer, re.IGNORECASE):
+    # 5. Script injection в ответе: тег <script>, javascript:-URL или
+    # обработчик события (`onerror=`, `onclick=`, ...). В исходном паттерне
+    # было `s*=` — это подшаблон «ноль или более 's' перед '='», т.е. он
+    # матчил ЛЮБОЙ знак равенства и блокировал обычные ответы с формулами
+    # («цена = 100»). Вместо него — перечень реальных on*-обработчиков
+    # (широкий `on\w+=` ловил бы английские слова: configuration=, versions=).
+    if re.search(
+        r"<script|javascript:|on(?:error|load|click|mouseover|focus|submit)\s*=",
+        answer,
+        re.IGNORECASE,
+    ):
         raise ValueError(f"script injection")
 
     # 6. Маскировка PII

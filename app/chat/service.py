@@ -51,6 +51,38 @@ CONDENSE_TEMPLATE = (
 # DEEPSEEK_NO_THINKING (см. app/services/llm.py) применяется к condense: иначе на
 # max_tokens=128 content приходит пустым и шаг молча деградирует до сырого вопроса.
 
+# Текст-замена для ответа, заблокированного output-модерацией. Уходит в двух
+# видах: в БД вместо ответа И в SSE-событии `moderation_notice` (поле
+# replacement). Это важно для стриминга: токены к моменту проверки уже
+# отправлены клиенту, поэтому без поля бот показал бы заблокированный текст,
+# а в истории лежала бы заглушка — расхождение UI и аудита.
+MODERATION_REPLACEMENT = (
+    "Извините, ответ не может быть показан — "
+    "он нарушает правила сервиса. "
+    "Попробуйте переформулировать вопрос."
+)
+
+# Служебные префиксы text-частей вложения (см. app/chat/media.py).
+_MEDIA_TEXT_PREFIXES = (
+    "[пользователь сказал голосом]:",
+    "[документ PDF]:",
+    "[документ DOCX]:",
+)
+
+
+def _media_text(media_part: dict | None) -> str:
+    """Текст вложения (транскрипт/документ) без служебного префикса.
+
+    Пустая строка — если вложения нет или оно не текст (изображение).
+    """
+    if not isinstance(media_part, dict):
+        return ""
+    text = str(media_part.get("text") or "")
+    for prefix in _MEDIA_TEXT_PREFIXES:
+        if text.startswith(prefix):
+            return text[len(prefix):].strip()
+    return text.strip()
+
 
 class ChatService:
     def __init__(
@@ -71,6 +103,7 @@ class ChatService:
         rag_condense_enabled: bool = False,
         rag_score_threshold: float = 0.5,
         llm_deepseek=None,
+        transcription_client=None,
         fallback_provider: str = "",
         fallback_model: str = "",
     ):
@@ -79,6 +112,9 @@ class ChatService:
         self.llm_openai = llm_openai
         self.llm_openrouter = llm_openrouter
         self.llm_deepseek = llm_deepseek
+        # Клиент для Whisper (audio/transcriptions): есть только у OpenAI.
+        # None — ключ OpenAI не настроен, голосовые получат понятный отказ.
+        self.transcription_client = transcription_client
         # Резерв на случай недоступности основного провайдера (см.
         # app/services/llm_fallback.py). Пусто — подмены нет.
         self.fallback_provider = fallback_provider
@@ -230,8 +266,9 @@ class ChatService:
     ) -> ModerationResult:
         """Модерация ответа LLM. Вызывается после накопления полного ответа.
 
-        Если ответ заблокирован — вместо него пользователю показывается
-        сообщение-заглушка через SSE-событие moderation_notice.
+        Если ответ заблокирован, вызывающий подменяет его константой
+        MODERATION_REPLACEMENT и шлёт SSE-событие `moderation_notice` с полем
+        `replacement` — клиент (бот) заменяет им уже отправленные токены.
         """
         if self.moderation is None:
             return ModerationResult(allowed=True, layer="passed")
@@ -336,11 +373,15 @@ class ChatService:
         history: list[ChatMessage],
         user_content: str,
         context_str: str,
+        media_part: dict | None = None,
     ) -> list[dict]:
         """Сообщения для RAG-генерации: предыстория + последний вопрос с контекстом.
 
         Полная предыстория уходит в LLM целиком — поэтому «а для них?» модель
         понимает из контекста; пронумерованный контекст — в финальном user-сообщении.
+        `media_part` — вложение последнего сообщения (подпись к файлу, картинка):
+        оно не проходит через retrieval, поэтому передаётся модели отдельной
+        частью того же user-сообщения.
         """
         from app.services.rag import CITATION_QA_TEMPLATE
 
@@ -349,18 +390,23 @@ class ChatService:
         ]
         for m in history[:-1]:
             messages.append({"role": m.role, "content": self._message_content_for_llm(m)})
-        messages.append(
-            {
-                "role": "user",
-                "content": CITATION_QA_TEMPLATE.format(
-                    context_str=context_str, query_str=user_content
-                ),
-            }
+        formatted = CITATION_QA_TEMPLATE.format(
+            context_str=context_str, query_str=user_content
         )
+        final_content: str | list[dict] = formatted
+        if media_part is not None:
+            final_content = [{"type": "text", "text": formatted}, media_part]
+        messages.append({"role": "user", "content": final_content})
         return messages
 
     async def _send_rag(
-        self, chat: Chat, user_content: str, llm, prompt_id, category: str | None = None
+        self,
+        chat: Chat,
+        user_content: str,
+        llm,
+        prompt_id,
+        category: str | None = None,
+        media_part: dict | None = None,
     ) -> AsyncIterator[dict]:
         """RAG-путь: condense -> retrieve -> score-guard -> генерация с цитатами.
 
@@ -377,8 +423,13 @@ class ChatService:
         history = await self.repository.list_messages(chat.id, limit=self.context_window)
 
         # 1. Поисковый запрос: опционально переписываем follow-up (condense).
+        # Если текста в сообщении нет (голосовое/документ без подписи), запрос
+        # берём из вложения: транскрипт или текст файла. Иначе retrieval уходил
+        # бы с пустой строкой, и score-guard отказывал бы при живом вложении.
         search_query = user_content
-        if self.rag_condense_enabled and len(history) > 1:
+        if not search_query.strip():
+            search_query = _media_text(media_part)
+        if self.rag_condense_enabled and len(history) > 1 and user_content.strip():
             try:
                 search_query = await self._condense(chat, user_content, history, llm)
             except Exception:
@@ -409,8 +460,13 @@ class ChatService:
             return
 
         # 3. Генерация по пронумерованному контексту.
+        # Вложение-текст, ставшее поисковым запросом, второй раз не шлём;
+        # подпись к файлу и картинки — подмешиваем отдельной частью.
+        attach = media_part
+        if media_part is not None and not user_content.strip() and _media_text(media_part):
+            attach = None
         messages = self._build_rag_messages(
-            history, user_content, numbered_context(nodes)
+            history, search_query, numbered_context(nodes), media_part=attach
         )
         buffer = ""
         usage = None
@@ -454,16 +510,14 @@ class ChatService:
                 buffer, owner_external_id=chat.owner_external_id
             )
             if not mod_result.allowed:
-                buffer = (
-                    "Извините, ответ не может быть показан — "
-                    "он нарушает правила сервиса. "
-                    "Попробуйте переформулировать вопрос."
-                )
+                buffer = MODERATION_REPLACEMENT
                 sources = []
                 yield {
                     "type": "moderation_notice",
                     "categories": mod_result.categories,
                     "reasons": mod_result.reasons,
+                    # Чем заменить уже отправленные клиенту токены.
+                    "replacement": buffer,
                 }
             saved = await self.repository.append_message(
                 chat.id,
@@ -506,11 +560,24 @@ class ChatService:
 
         # 2. media → part
         media_refs: dict | None = None
+        part: dict | None = None
         if media is not None:
             mime = media.content_type or ""
             filename = media.filename
             size = getattr(media, "size", None)
-            part = await media_to_part(media, llm)
+            try:
+                part = await media_to_part(media, llm, self.transcription_client)
+            except Exception as exc:  # noqa: BLE001 — любая ошибка вложения
+                # Понятное сообщение вместо обрыва SSE: раньше исключение
+                # всплывало из генератора до первого события (бот показывал
+                # «Не получилось получить ответ от модели»), а голосовые в
+                # конфигурации без OpenAI падали 404-й от чужого провайдера.
+                logger.warning("Вложение не обработано (chat_id=%s): %s", chat_id, exc)
+                yield {
+                    "type": "token",
+                    "delta": f"⚠️ Не удалось обработать вложение: {exc}",
+                }
+                return
             media_refs = {
                 "mime": mime,
                 "size": size,
@@ -536,7 +603,7 @@ class ChatService:
         # 4.1 Диалоговый RAG: retrieval + цитаты вместо чистого LLM-чата.
         if self._rag_active():
             async for event in self._send_rag(
-                chat, user_content, llm, prompt_id, category
+                chat, user_content, llm, prompt_id, category, media_part=part
             ):
                 yield event
             return
@@ -601,15 +668,13 @@ class ChatService:
                     chat_id,
                     mod_result.categories,
                 )
-                buffer = (
-                    "Извините, ответ не может быть показан — "
-                    "он нарушает правила сервиса. "
-                    "Попробуйте переформулировать вопрос."
-                )
+                buffer = MODERATION_REPLACEMENT
                 yield {
                     "type": "moderation_notice",
                     "categories": mod_result.categories,
                     "reasons": mod_result.reasons,
+                    # Чем заменить уже отправленные клиенту токены.
+                    "replacement": buffer,
                 }
 
             saved = await self.repository.append_message(

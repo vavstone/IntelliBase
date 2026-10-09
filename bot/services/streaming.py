@@ -90,6 +90,17 @@ def format_sources(sources: list[dict]) -> str:
 # 0.7 сек даёт плавную анимацию и оставляет запас под другие сообщения бота.
 DRAFT_MIN_INTERVAL_SEC = 0.7
 
+# Telegram ограничивает сообщение 4096 символами — режем с запасом.
+# Лимит генерации чата (1024 токена) обычно ниже порога, но страховка нужна:
+# MarkdownV2-экранирование раздувает текст, а смена настроек/провайдера может
+# поднять длину ответа. Общая для стрима чата и агентного рендера (agent.py).
+TELEGRAM_LIMIT = 4000
+
+
+def clip_for_telegram(text: str, limit: int = TELEGRAM_LIMIT) -> str:
+    """Обрезает текст до лимита Telegram с многоточием."""
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
 
 async def stream_to_chat(
     message: Message,
@@ -146,6 +157,11 @@ async def stream_to_chat(
             assistant_message_id = event.get("message_id")
         elif etype == "sources":
             sources = event.get("sources") or []
+        elif etype == "moderation_notice":
+            # Ответ заблокирован output-модерацией уже ПОСЛЕ отправки токенов:
+            # подменяем буфер заглушкой из события, иначе финальный send_message
+            # покажет текст, который модерация признала нарушающим.
+            buffer = event.get("replacement") or buffer
 
     if buffer:
         reply_markup = (
@@ -169,7 +185,7 @@ async def _send_final(
     src = format_sources(sources or [])
     if src:
         body = f"{body}\n{src}"
-    md = to_tg_markdown(body)
+    md = clip_for_telegram(to_tg_markdown(body))
     try:
         await message.bot.send_message(
             chat_id=message.chat.id,
@@ -181,7 +197,7 @@ async def _send_final(
         log.warning("MarkdownV2 parse failed, fallback to plain: %s", e)
         await message.bot.send_message(
             chat_id=message.chat.id,
-            text=body,
+            text=clip_for_telegram(body),
             reply_markup=reply_markup,
         )
 
@@ -214,16 +230,18 @@ async def _stream_via_edit_text(
             assistant_message_id = event.get("message_id")
         elif etype == "sources":
             sources = event.get("sources") or []
+        elif etype == "moderation_notice":
+            buffer = event.get("replacement") or buffer  # см. stream_to_chat
 
     if buffer:
         reply_markup = (
             feedback_kb(assistant_message_id) if assistant_message_id else None
         )
-        body = buffer.strip()
+        body = clip_for_telegram(buffer.strip())
         src = format_sources(sources)
         if src:
             body = f"{body}\n{src}"
-        md = to_tg_markdown(body)
+        md = clip_for_telegram(to_tg_markdown(body))
         try:
             await sent.edit_text(
                 md,

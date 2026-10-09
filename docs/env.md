@@ -53,6 +53,8 @@ backoff) при этом отрабатывают первыми — резер�
 | Переменная | Дефолт | Назначение |
 |-----------|--------|------------|
 | `DATABASE_URL` | `…localhost:5432/intellibase` | Postgres (asyncpg) |
+| `POSTGRES_PASSWORD` | `pswd` | пароль Postgres для compose (`DATABASE_URL` собирается из него) |
+| `DATABASE_URL_FOR_TESTS` | — | override URL тестовой БД для `test_repository_contract.py` |
 | `CHAT_REPOSITORY` | `json` | `json` (файлы) / `postgres` |
 | `CHAT_STORAGE_DIR` | `./var/chats` | путь для JSONL при `json` |
 | `CHAT_CONTEXT_WINDOW` | `10` | sliding window (сообщений) |
@@ -77,6 +79,7 @@ backoff) при этом отрабатывают первыми — резер�
 | `RAG_COLLECTION` | `rag_demo` | рабочая коллекция LlamaIndex (под демо-корпус; под рабочий — `rag_block_05`) |
 | `RAG_COLLECTION_BARE` | `rag_block_03_bare` | bare-metal сравнение (Б5.3) |
 | `RAG_DOCSTORE_PATH` | `var/rag_docstore.json` | состояние инкрементальной индексации |
+| `RAG_LLM_PROVIDER` | `ollama` | провайдер LLM генерации RAG: `ollama` / `deepseek` / `openai` / `openrouter` |
 | `RAG_LLM_MODEL` | `qwen3:8b` | LLM генерации RAG-ответа (выбор Б5.6) |
 | `RAG_LLM_TIMEOUT` | `600` | таймаут генерации (сек; qwen3:8b на CPU до ~5 мин) |
 | `RAG_LLM_CONTEXT_WINDOW` | `8192` | контекстное окно LLM |
@@ -84,7 +87,7 @@ backoff) при этом отрабатывают первыми — резер�
 | `RAG_CHUNK_SIZE` | `512` | размер чанка |
 | `RAG_CHUNK_OVERLAP` | `64` | перекрытие чанков |
 | `RAG_PDF_PARSER` | `inspector` | движок извлечения PDF: `inspector` (pdf-inspector, Rust) или `pymupdf` (legacy-откат) |
-| `RAG_SCORE_THRESHOLD` | `0.80` | порог score-guard |
+| `RAG_SCORE_THRESHOLD` | `0.80` | порог score-guard (в `.env.example` — `0.78` под демо-корпус; калибровка обоих — `docs/rag.md`) |
 | `RAG_RERANK_ENABLED` | `false` | включить реранкер |
 | `RAG_RERANK_MODEL` | `BAAI/bge-reranker-v2-m3` | модель реранкера |
 | `RAG_RERANK_TOP_N` | `5` | top-N в промпт |

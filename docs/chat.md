@@ -17,7 +17,7 @@
 
 * PostgresChatRepository – использует SQLAlchemy async‑сессии, таблицы chats и chat_messages с полем deleted_at для мягкого удаления.
 
-**LLM клиенты** – инкапсулированы в AsyncOpenAI (три экземпляра для разных провайдеров). Выбор провайдера определяется полем provider у чата.
+**LLM клиенты** – инкапсулированы в AsyncOpenAI (четыре экземпляра: ollama / openai / openrouter / deepseek). Выбор провайдера определяется полем provider у чата.
 
 
 ## Стратегия контекста

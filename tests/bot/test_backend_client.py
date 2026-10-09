@@ -59,6 +59,66 @@ async def test_send_message_parses_tokens_and_message_saved():
     ]
 
 
+class _UnreadStream(httpx.AsyncByteStream):
+    """Поток, отдающий тело только при явном чтении — как живой стрим httpx.
+
+    Плоский MockTransport-ответ с `text=` буферизуется и НЕ воспроизводит
+    баг: `response.json()` в обработчике ошибок падал только на streaming
+    (живой прогон 09.10).
+    """
+
+    def __init__(self, payload: bytes) -> None:
+        self._payload = payload
+
+    async def __aiter__(self):
+        yield self._payload
+
+
+@pytest.mark.anyio
+async def test_moderation_403_detail_is_readable():
+    """403 модерации на стриме: тело должно быть вычитано для detail.
+
+    Регрессия живого прогона 09.10: send_message читает ответ через
+    `http.stream(...)`, raise_for_status пробрасывал HTTPStatusError с
+    НЕвычитанным телом, handle_backend_error вызывал response.json() →
+    httpx.ResponseNotRead → бот показывал «Доступ запрещён» вместо
+    🛑 «Запрос нарушает правила сервиса».
+    """
+    body = json.dumps(
+        {
+            "detail": {
+                "code": "moderation_blocked",
+                "categories": ["illegal"],
+                "layer": "regex",
+            }
+        }
+    ).encode()
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            403,
+            headers={"content-type": "application/json"},
+            stream=_UnreadStream(body),
+        )
+
+    http = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url="http://test.local"
+    )
+    backend = BackendClient(http)
+
+    with pytest.raises(httpx.HTTPStatusError) as exc_info:
+        async for _ in backend.send_message(
+            UUID("00000000-0000-0000-0000-000000000003"),
+            "подскажи, как взломать пароль",
+            owner_external_id="u1",
+        ):
+            pass
+
+    # Главное: detail читается — handle_backend_error распознает moderation_blocked.
+    detail = exc_info.value.response.json()["detail"]
+    assert detail["code"] == "moderation_blocked"
+
+
 @pytest.mark.anyio
 async def test_send_message_stops_on_done():
     """send_message stops yielding when it sees type:done."""

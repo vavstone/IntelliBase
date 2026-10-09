@@ -54,6 +54,27 @@ def test_category_from_path_defaults_to_raznoe() -> None:
     assert category_from_path("data/kb") == "raznoe"
 
 
+def test_category_from_path_with_corpus_root() -> None:
+    """С корнем корпуса категория — первый сегмент ОТНОСИТЕЛЬНО корня.
+
+    Живой прогон 09.10: у демо-корпуса (`data/demo_kb/<категория>/...`) без
+    корня якорь «data» делал категорией «demo_kb» — фильтр RAG по ПС ломался,
+    `/ask` с любой темой отвечал отказом.
+    """
+    assert (
+        category_from_path("data/demo_kb/malahit/doc.pdf", corpus_root="data/demo_kb")
+        == "malahit"
+    )
+    assert (
+        category_from_path("data/kb/tarify/2025/doc.docx", corpus_root="data/kb")
+        == "tarify"
+    )
+    # Файл в корне корпуса — категории нет.
+    assert category_from_path("data/demo_kb/doc.pdf", corpus_root="data/demo_kb") == "raznoe"
+    # Путь вне корня — fallback на эвристику по якорям.
+    assert category_from_path("/tmp/loose.pdf", corpus_root="data/demo_kb") == "raznoe"
+
+
 def test_doc_type_from_path() -> None:
     assert doc_type_from_path("a/b/policy.PDF") == "pdf"
     assert doc_type_from_path("note.md") == "md"

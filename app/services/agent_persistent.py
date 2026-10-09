@@ -81,6 +81,42 @@ def _find_dangerous_call(message: AnyMessage) -> dict | None:
     return None
 
 
+def _skipped_tool_messages(
+    message: AnyMessage, handled_call_id: str
+) -> list[ToolMessage]:
+    """ToolMessage-ответы для прочих вызовов того же шага.
+
+    Модель может запросить несколько инструментов в одном сообщении, а граф
+    обрабатывает один за шаг (опасный — через HIL-ветку). На остальные вызовы
+    отвечаем явно: без ответа история уходит провайдеру с «висячими»
+    tool_call_id, и следующий же вызов модели падает 400 («assistant message
+    with tool_calls must be followed by tool messages»), застревая навсегда.
+    Текст подсказывает модели повторить нужный инструмент отдельным шагом.
+    """
+    messages: list[ToolMessage] = []
+    for call in getattr(message, "tool_calls", None) or []:
+        if call.get("id") == handled_call_id:
+            continue
+        if call.get("name") in DANGEROUS_TOOLS:
+            note = (
+                "отправка не выполнена в этом шаге: подтверждение проходит по одному "
+                "инструменту за раз — если она ещё нужна, вызови инструмент отдельным шагом"
+            )
+        else:
+            note = (
+                "инструмент не выполнен в этом шаге: запрошено несколько инструментов "
+                "сразу — если он ещё нужен, вызови его отдельным шагом"
+            )
+        messages.append(
+            ToolMessage(
+                content=note,
+                tool_call_id=call.get("id") or "",
+                name=call.get("name") or "",
+            )
+        )
+    return messages
+
+
 def _configurable(config: RunnableConfig | None) -> dict:
     return (config or {}).get("configurable") or {}
 
@@ -190,11 +226,32 @@ def build_agent(
         results: list[dict] = []
         for call in last.tool_calls:
             if call["name"] in DANGEROUS_TOOLS:
-                continue  # опасные инструменты идут через HIL-ветку, не здесь
+                # По текущей маршрутизации сюда опасные не попадают (их уводит
+                # в HIL-ветку route_after_model), но ответ на вызов нужен всегда:
+                # «висячий» tool_call ломает следующий вызов модели (400).
+                messages.append(
+                    ToolMessage(
+                        content="вызов обрабатывается отдельной веткой подтверждения",
+                        tool_call_id=call["id"],
+                        name=call["name"],
+                    )
+                )
+                continue
             if call["name"] not in tool_by_name:
                 content = f"error: unknown tool '{call['name']}'"
             else:
-                content = str(await tool_by_name[call["name"]].ainvoke(call["args"]))
+                # Ошибка инструмента не должна ронять весь прогон: отдаём её
+                # модели как результат (цикл ReAct — она исправится), а состояние
+                # не остаётся с неотвеченным tool_call.
+                try:
+                    content = str(await tool_by_name[call["name"]].ainvoke(call["args"]))
+                except Exception as exc:  # noqa: BLE001 — любая ошибка инструмента
+                    logger.warning(
+                        "Инструмент %s завершился ошибкой: %s", call["name"], exc
+                    )
+                    content = (
+                        f"error: инструмент {call['name']} завершился ошибкой: {exc}"
+                    )
             messages.append(ToolMessage(content=content, tool_call_id=call["id"], name=call["name"]))
             results.append(
                 {"name": call["name"], "args": call["args"], "result": content}
@@ -285,7 +342,10 @@ def build_agent(
         )
         return {
             "messages": [
-                ToolMessage(content=content, tool_call_id=(call or {}).get("id", ""), name=tool_name)
+                ToolMessage(content=content, tool_call_id=(call or {}).get("id", ""), name=tool_name),
+                # Прочие вызовы того же шага закрываем явно — иначе история
+                # уйдёт провайдеру с «висячими» tool_calls (см. хелпер).
+                *_skipped_tool_messages(last, (call or {}).get("id", "")),
             ],
             "tool_results": [
                 {
@@ -330,7 +390,12 @@ def build_agent(
         return {
             "sent": sent,
             "messages": [
-                ToolMessage(content=content, tool_call_id=draft.get("tool_call_id", ""))
+                ToolMessage(content=content, tool_call_id=draft.get("tool_call_id", "")),
+                # Прочие вызовы того же шага (например, безопасный поиск рядом
+                # с отправкой) закрываем явно — см. _skipped_tool_messages.
+                *_skipped_tool_messages(
+                    state["messages"][-1], draft.get("tool_call_id", "")
+                ),
             ],
             "tool_results": [
                 {"name": tool_name, "args": draft, "result": content}
@@ -339,9 +404,22 @@ def build_agent(
 	
     async def force_finish(state: PersistentAgentState) -> dict:
         last = state["messages"][-1]
-        if getattr(last, "tool_calls", None):
-            return {"messages": [AIMessage(content="Превышен лимит итераций")]}
-        return {}
+        calls = getattr(last, "tool_calls", None)
+        if not calls:
+            return {}
+        # Итерации кончились с незакрытыми вызовами: отвечаем на каждый, иначе
+        # следующий invoke этого треда уйдёт провайдеру с «висячими» tool_calls.
+        return {
+            "messages": [
+                ToolMessage(
+                    content="Превышен лимит итераций: инструмент не выполнен",
+                    tool_call_id=call.get("id") or "",
+                    name=call.get("name") or "",
+                )
+                for call in calls
+            ]
+            + [AIMessage(content="Превышен лимит итераций")]
+        }
 
     def route_after_model(
         state: PersistentAgentState, config: RunnableConfig

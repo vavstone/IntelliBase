@@ -62,7 +62,9 @@ async def test_media_to_part_audio_ogg_returns_text_with_prefix():
     media = _fake_upload_file("audio/ogg", fake_audio, "voice.ogg")
     llm_client = _make_mock_llm("привет мир")
 
-    result = await media_to_part(media, llm_client)
+    # Аудио идёт через transcription_client (OpenAI-клиент), а не через клиент
+    # провайдера чата: у Ollama/DeepSeek нет /audio/transcriptions.
+    result = await media_to_part(media, llm_client, llm_client)
 
     assert result["type"] == "text"
     assert result["text"] == "[пользователь сказал голосом]:\nпривет мир"
@@ -83,10 +85,64 @@ async def test_media_to_part_audio_ogg_missing_content_type():
     media = _fake_upload_file("application/ogg", fake_audio, "voice.ogg")
     llm_client = _make_mock_llm("тест")
 
-    result = await media_to_part(media, llm_client)
+    result = await media_to_part(media, llm_client, llm_client)
 
     assert result["type"] == "text"
     assert result["text"] == "[пользователь сказал голосом]:\nтест"
+
+
+@pytest.mark.anyio
+async def test_audio_without_openai_client_gets_clear_error():
+    """Без OpenAI-клиента голосовое не летит чужому провайдеру (404), а даёт понятный отказ."""
+    from app.chat.media import media_to_part
+
+    media = _fake_upload_file("audio/ogg", b"\x00" * 50, "voice.ogg")
+    llm_client = _make_mock_llm("не должен вызываться")
+
+    with pytest.raises(ValueError, match="OpenAI"):
+        await media_to_part(media, llm_client)  # transcription_client не передан
+
+    llm_client.audio.transcriptions.create.assert_not_awaited()
+
+
+# ── имя файла для Whisper ───────────────────────────────────────────────
+
+
+def test_audio_filename_replaces_bot_placeholder():
+    """Бот шлёт вложение как file.bin — Whisper по расширению не поймёт формат.
+
+    Живой прогон 09.10: Telegram-голосовое (ogg) получало от OpenAI
+    «400 Invalid file format», потому что имя было file.bin.
+    """
+    from app.chat.media import _audio_filename
+
+    assert _audio_filename("file.bin", "audio/ogg") == "voice.ogg"
+    assert _audio_filename("file.bin", "audio/mpeg") == "voice.mp3"
+    assert _audio_filename("file.bin", "audio/x-m4a") == "voice.m4a"
+    # Незнакомый MIME — безопасный дефолт вместо .bin.
+    assert _audio_filename("file.bin", "application/octet-stream") == "voice.ogg"
+
+
+def test_audio_filename_keeps_real_audio_names():
+    """Имя с аудио-расширением не трогаем — это прямой вызов (тесты, API)."""
+    from app.chat.media import _audio_filename
+
+    assert _audio_filename("recording.m4a", "audio/ogg") == "recording.m4a"
+    assert _audio_filename("notes.WAV", "audio/ogg") == "notes.WAV"
+
+
+@pytest.mark.anyio
+async def test_media_to_part_bot_voice_uses_ogg_name():
+    """End-to-end: голосовое от бота (file.bin) уходит в Whisper как voice.ogg."""
+    from app.chat.media import media_to_part
+
+    media = _fake_upload_file("audio/ogg", b"\x00" * 50, "file.bin")
+    llm_client = _make_mock_llm("привет")
+
+    await media_to_part(media, llm_client, llm_client)
+
+    call_kwargs = llm_client.audio.transcriptions.create.call_args.kwargs
+    assert call_kwargs["file"].name == "voice.ogg"
 
 
 @pytest.mark.anyio

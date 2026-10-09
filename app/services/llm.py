@@ -172,7 +172,14 @@ class LLMService:
             return resp
 
         key = self._key(req)
-        blob = await self.cache.get(key)
+        # Cache-aside fail-soft: Redis опционален (см. lifespan), и его отказ
+        # ПОСЛЕ старта не должен ронять запрос — идём мимо кэша, как будто его
+        # нет. Раньше ConnectionError здесь превращался в 500.
+        try:
+            blob = await self.cache.get(key)
+        except Exception as exc:  # noqa: BLE001 — Redis недоступен
+            logger.warning("Кэш недоступен на чтении (%s) — запрос мимо кэша", exc)
+            blob = None
         if blob:
             resp = ChatResponse.model_validate_json(blob)
             resp.cached = True
@@ -184,7 +191,10 @@ class LLMService:
         except Exception as e:
             logger.error("LLM call failed after retries: %s", e)
             raise
-        await self.cache.setex(key, self.ttl, resp.model_dump_json())
+        try:
+            await self.cache.setex(key, self.ttl, resp.model_dump_json())
+        except Exception as exc:  # noqa: BLE001 — Redis недоступен
+            logger.warning("Кэш недоступен на записи (%s) — ответ не закэширован", exc)
         await self._count_cache(CACHE_MISS_KEY)
         return resp
 

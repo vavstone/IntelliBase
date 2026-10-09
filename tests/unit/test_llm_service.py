@@ -319,6 +319,37 @@ async def test_complete_counts_cache_miss_then_hit(mock_cache):
 
 
 @pytest.mark.asyncio
+async def test_complete_survives_broken_cache(llm_service, mock_openai, mock_cache, mocker):
+    """Redis упал после старта — запрос идёт мимо кэша, а не падает 500.
+
+    Кэш опционален (см. lifespan): ConnectionError на get/setex не должен
+    ломать ответ. Оба вызова терпимы к отказу.
+    """
+    mock_cache.get = AsyncMock(side_effect=RuntimeError("redis down"))
+    mock_cache.setex = AsyncMock(side_effect=RuntimeError("redis down"))
+
+    mock_raw = mocker.MagicMock()
+    mock_choice = mocker.MagicMock()
+    mock_choice.message.content = "Fresh reply"
+    mock_choice.finish_reason = "stop"
+    mock_raw.choices = [mock_choice]
+    mock_raw.model = "gpt-4o-mini"
+    mock_raw.usage = Usage(prompt_tokens=5, completion_tokens=10, total_tokens=15)
+    mock_openai.chat.completions.create.return_value = mock_raw
+
+    req = ChatRequest(
+        messages=[{"role": "user", "content": "Hello"}],
+        model="gpt-4o-mini",
+        provider="openai",
+        temperature=0.0,
+    )
+
+    response = await llm_service.complete(req)
+    assert response.content == "Fresh reply"
+    assert response.cached is False
+
+
+@pytest.mark.asyncio
 async def test_read_cache_counters_fail_soft():
     """Счётчики кэша не должны ломать метрики: без Redis и при ошибке — нули."""
     from app.services.llm import read_cache_counters

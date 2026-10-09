@@ -19,7 +19,7 @@ import pytest
 
 from app.chat.domain import ChatMessage
 from app.chat.repositories.json_repo import JsonChatRepository
-from app.chat.service import ChatService
+from app.chat.service import MODERATION_REPLACEMENT, ChatService
 
 # Локальная копия REFUSAL_TEXT из app/services/rag.py (см. комментарий выше).
 REFUSAL_TEXT = "В базе знаний я не нашёл ответа на этот вопрос."
@@ -238,3 +238,95 @@ async def test_send_rag_passes_category_filter_to_retrieve(tmp_path) -> None:
     assert keys == {"visibility", "category"}
     cat = next(f for f in filters.filters if f.key == "category")
     assert cat.value == ["tarify"]
+
+
+@pytest.mark.asyncio
+async def test_rag_media_part_attached_to_question(tmp_path) -> None:
+    """PDF с подписью: поиск по подписи, документ — отдельной частью вопроса."""
+    rag = _FakeRag([_FakeNode("контекст", score=0.9)])
+    llm = _FakeLLM(stream_chunks=[_Chunk("ответ")])
+    svc, _ = _service(tmp_path, rag=rag, llm=llm)
+    chat = await svc.get_or_create_chat(
+        owner_external_id="u5", interface="telegram", provider="ollama", model="m"
+    )
+    pdf_part = {"type": "text", "text": "[документ PDF]:\nСодержимое документа"}
+
+    async for _ in svc._send_rag(chat, "что в документе?", llm, None, None, media_part=pdf_part):
+        pass
+
+    assert rag.retrieve_calls[0][0] == "что в документе?"
+    content = llm.calls[0]["messages"][-1]["content"]
+    assert isinstance(content, list)          # [шаблон, вложение]
+    assert content[1] == pdf_part
+
+
+@pytest.mark.asyncio
+async def test_rag_voice_without_text_searches_by_transcript(tmp_path) -> None:
+    """Голосовое без подписи: retrieval идёт по транскрипту, без дублирования.
+
+    Регрессия: медиа последнего сообщения не доходило до RAG-ветки вовсе —
+    голосовое транскрибировалось, но поиск уходил с пустой строкой.
+    """
+    rag = _FakeRag([_FakeNode("контекст про тарифы", score=0.9)])
+    llm = _FakeLLM(stream_chunks=[_Chunk("ответ")])
+    svc, _ = _service(tmp_path, rag=rag, llm=llm)
+    chat = await svc.get_or_create_chat(
+        owner_external_id="u6", interface="telegram", provider="ollama", model="m"
+    )
+    voice_part = {
+        "type": "text",
+        "text": "[пользователь сказал голосом]:\nКакие тарифы в Малахите?",
+    }
+
+    async for _ in svc._send_rag(chat, "", llm, None, None, media_part=voice_part):
+        pass
+
+    # Поиск — по чистому транскрипту, без служебного префикса.
+    assert rag.retrieve_calls[0][0] == "Какие тарифы в Малахите?"
+    # Транскрипт уже в тексте вопроса — второй частью не дублируется.
+    content = llm.calls[0]["messages"][-1]["content"]
+    assert isinstance(content, str)
+    assert "Какие тарифы в Малахите?" in content
+
+
+class _BlockingModeration:
+    """Модерация, блокирующая любой ответ (проверяем механику подмены)."""
+
+    async def check_output(self, text: str, owner_external_id=None):  # noqa: ANN001
+        from app.moderation.domain import ModerationResult
+
+        return ModerationResult(
+            allowed=False, categories=["test"], reasons=["тестовое срабатывание"]
+        )
+
+
+@pytest.mark.asyncio
+async def test_blocked_output_sends_replacement_and_saves_stub(tmp_path) -> None:
+    """Блокировка ответа: SSE несёт replacement, в БД — заглушка, без источников.
+
+    Регрессия: раньше событие moderation_notice не содержало текст-замену, и
+    бот показывал заблокированный ответ (он уже ушёл токенами), а в истории
+    лежала заглушка — расхождение UI и аудита.
+    """
+    rag = _FakeRag([_FakeNode("контекст", score=0.9)])
+    llm = _FakeLLM(stream_chunks=[_Chunk("запрещённый текст")])
+    svc, repo = _service(tmp_path, rag=rag, llm=llm)
+    svc.moderation = _BlockingModeration()
+    chat = await svc.get_or_create_chat(
+        owner_external_id="u4", interface="telegram", provider="ollama", model="qwen2.5:3b"
+    )
+
+    events = []
+    async for e in svc.send_message(chat.id, "вопрос"):
+        events.append(e)
+
+    notice = [e for e in events if e.get("type") == "moderation_notice"]
+    assert notice, events
+    assert notice[0]["replacement"] == MODERATION_REPLACEMENT
+
+    srcs = [e for e in events if e.get("type") == "sources"]
+    assert srcs and srcs[0]["sources"] == []  # источники не показываем
+
+    history = await repo.list_messages(chat.id)
+    assert history[-1].content == MODERATION_REPLACEMENT
+    assert "запрещённый текст" not in history[-1].content

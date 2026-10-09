@@ -2,7 +2,7 @@
 
 ## Конфигурация
 
-- **Движок:** Qdrant `qdrant/qdrant:v1.14.0`
+- **Движок:** Qdrant `qdrant/qdrant:v1.14.0` (на момент отчёта ДЗ 5.2; в `compose.yaml` — `v1.18.0`)
 - **Embedding-модель:** `intfloat/multilingual-e5-large` (dim=1024)
 - **Метрика:** cosine
 - **Коллекция:** `documents`

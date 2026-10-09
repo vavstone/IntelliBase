@@ -290,6 +290,28 @@ async def test_unknown_callback_is_ignored():
 # ── рендеринг ────────────────────────────────────────────────────────────
 
 
+@pytest.mark.asyncio
+async def test_second_interrupt_shows_new_buttons():
+    """Повторная пауза в том же прогоне: новые кнопки, а не «(пустой ответ)».
+
+    Живой прогон 09.10 («сначала мне, потом Попову»): после первого
+    подтверждения граф снова встал на interrupt — бот показал «(пустой ответ)»,
+    кнопки были сняты, и вторую отправку подтвердить было нечем (тупик).
+    """
+    backend = _make_backend(resume=INTERRUPT_RESULT)
+    cb = _make_callback(f"{HIL_CB_PREFIX}:approve:tg12345-abcdef01")
+
+    await on_hil_decision(cb, backend=backend)
+
+    msg = cb.message
+    msg.answer.assert_awaited_once()  # новое сообщение-пауза
+    kwargs = msg.answer.await_args.kwargs
+    assert kwargs.get("reply_markup") is not None  # с кнопками подтверждения
+    text = str(msg.answer.await_args.args[0])
+    assert "Агент остановлен" in text
+    assert "(пустой ответ)" not in text
+
+
 def test_render_interrupt_clips_long_draft():
     payload = {"type": "approve_send", "preview": {"text": "я" * 5000}}
     text = render_interrupt(payload, [])

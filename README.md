@@ -226,7 +226,7 @@ make logs / ps / shell / down / clean
 (`scripts/generate_demo_corpus.py`), чтобы проект запускался на чистом клоне
 без реальных внутренних документов.
 
-Рабочий корпус подключается через `RAG_DATA_DIR` в `.env` — 70 документов
+Рабочий корпус подключается через `RAG_DATA_DIR` в `.env` — около 70 документов
 ФТС, 27 МБ (`docs/data_inventory.md`), в git не хранится.
 
 **Примеры вопросов** (проверены на демо-корпусе, входят в датасет оценки):
@@ -255,11 +255,11 @@ make logs / ps / shell / down / clean
 | `LLM__FALLBACK_MODEL` | `qwen2.5:3b` | модель резерва |
 | `RAG_DATA_DIR` | `data/demo_kb` | каталог корпуса (папка верхнего уровня = категория) |
 | `RAG_COLLECTION` | `rag_demo` | коллекция Qdrant |
-| `RAG_LLM_PROVIDER` | `ollama` | модель синтеза RAG (может отличаться от чата) |
+| `RAG_LLM_PROVIDER` | `ollama` | провайдер синтеза RAG: `ollama` / `deepseek` / `openai` |
 | `RAG_LLM_MODEL` | `qwen3:8b` | модель синтеза RAG (на CPU ~2–4 мин на ответ; облако — `deepseek-v4-flash`) |
 | `RAG_CHUNK_SIZE` / `RAG_CHUNK_OVERLAP` | `512` / `64` | параметры чанкинга (выбор обоснован в docs/chunking_experiment.md) |
 | `RAG_TOP_K` | `10` | ширина retrieval |
-| `RAG_SCORE_THRESHOLD` | `0.78` | порог релевантности: ниже — честный отказ без вызова LLM |
+| `RAG_SCORE_THRESHOLD` | `0.78` | порог релевантности (демо-корпус; рабочий — `0.80`, см. `docs/rag.md`): ниже — честный отказ без вызова LLM |
 | `RAG_PDF_PARSER` | `inspector` | извлечение текста из PDF: `inspector` (pdf-inspector, Rust) / `pymupdf` |
 | `RAG_ENABLE_CHAT` | `true` | RAG в чате бота (false — обычный LLM-чат) |
 | `CHAT_REPOSITORY` | `json` | хранилище чатов: `json` (JSONL) / `postgres` |
@@ -274,11 +274,11 @@ make logs / ps / shell / down / clean
 
 ## Тесты и качество
 
-**Тесты** — 371 (368 passed, 3 skipped), pytest:
+**Тесты** — 451 (448 passed, 3 skipped), pytest:
 
 ```bash
-make test         # быстро, без инфраструктуры
-make test-all     # полный прогон, нужна поднятая инфраструктура
+make test         # быстрый прогон (без внешних API; PG/Qdrant-тесты скипаются, если не подняты)
+make test-all     # полный прогон, включая интеграционные (нужны стек и сеть)
 ```
 
 **Качество поиска** — RAGAS на 27 эталонных вопросах демо-корпуса

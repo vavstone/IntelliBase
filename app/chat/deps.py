@@ -83,6 +83,16 @@ def get_chat_service(
         llm_openai=llm_openai,
         llm_openrouter=llm_openrouter,
         llm_deepseek=llm_deepseek,
+        # Whisper (audio/transcriptions) есть только у OpenAI: остальные
+        # провайдеры (ollama/deepseek/openrouter) такого эндпоинта не имеют.
+        # Ключ-заглушка из шаблона означает «OpenAI не настроен» — тогда
+        # голосовые честно получают отказ вместо 404 от чужого провайдера.
+        transcription_client=(
+            llm_openai
+            if settings.llm.openai_api_key.get_secret_value()
+            not in ("", "sk-test-placeholder")
+            else None
+        ),
         context_window=settings.chat_context_window,
         default_provider=settings.llm.default_provider,
         default_model=settings.llm.default_model,

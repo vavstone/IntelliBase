@@ -49,8 +49,8 @@ help: ## Список целей
 	@echo   restart     restart app and bot without rebuild
 	@echo   ps          service status
 	@echo   logs        app and bot logs (Ctrl+C to exit)
-	@echo   test        fast tests (needs uv)
-	@echo   test-all    full test run (needs uv and a running stack)
+	@echo   test        fast tests: no external API, infra-less skips
+	@echo   test-all    full run incl. integration (needs stack and network)
 	@echo   ingest      incremental corpus indexing
 	@echo   reindex     full reindex (wipes collection and docstore)
 	@echo   eval        RAG quality (RAGAS, needs uv)
@@ -85,12 +85,10 @@ smoke-rag: ## Smoke + сквозной вопрос к RAG (нужны LLM и н
 smoke-host: ## То же, когда приложение запущено на хосте (uvicorn вне Docker)
 	$(UV) run python scripts/smoke.py $(SMOKE_ARGS)
 
-test: ## Быстрые тесты (без интеграционных, требующих PG/lifespan)
-	$(UV) run pytest tests/ -q \
-		--ignore=tests/chat/test_routes.py \
-		--ignore=tests/chat/test_service_context.py
+test: ## Быстрые тесты (без интеграционных; PG/Qdrant сами скипаются)
+	$(UV) run pytest tests/ -q -m "not integration"
 
-test-all: ## Полный прогон тестов (нужна поднятая инфраструктура)
+test-all: ## Полный прогон тестов, включая интеграционные (нужны стек и сеть)
 	$(UV) run pytest tests/ -q
 
 ingest: ## Инкрементальная индексация корпуса (CORPUS=data/demo_kb)

@@ -36,14 +36,11 @@ from bot.keyboards.inline import (
 )
 from bot.services.backend_client import BackendClient
 from bot.services.error_handling import handle_backend_error
-from bot.services.streaming import to_tg_markdown
+from bot.services.streaming import clip_for_telegram, to_tg_markdown
 from bot.services.typing import typing_until
 
 router = Router(name="agent")
 log = logging.getLogger(__name__)
-
-# Telegram ограничивает сообщение 4096 символами — режем с запасом.
-TELEGRAM_LIMIT = 4000
 # Сколько символов черновика показывать в превью (остальное — многоточие).
 PREVIEW_LIMIT = 900
 # Имя опасного инструмента в `tool_results` (совпадает с app/tools/graph_tools.py).
@@ -88,10 +85,6 @@ def new_thread_id(chat_id: int) -> str:
     не больше 64 байт (`hil:approve:` + id).
     """
     return f"tg{chat_id}-{uuid.uuid4().hex[:8]}"
-
-
-def _clip(text: str, limit: int = TELEGRAM_LIMIT) -> str:
-    return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
 def _tool_lines(tool_results: list[dict], *, with_result: bool) -> list[str]:
@@ -179,7 +172,7 @@ async def _answer(
     поэтому переводим его тем же конвертером, что и стриминг чата, а при
     TelegramBadRequest отдаём текст как есть — без разметки, но доставленный.
     """
-    body = _clip(text)
+    body = clip_for_telegram(text)
     try:
         await message.answer(
             to_tg_markdown(body),
@@ -194,7 +187,7 @@ async def _answer(
 async def _edit(cb: CallbackQuery, text: str) -> None:
     if cb.message is None:
         return
-    body = _clip(text)
+    body = clip_for_telegram(text)
     try:
         await cb.message.edit_text(
             to_tg_markdown(body), parse_mode=ParseMode.MARKDOWN_V2
@@ -312,4 +305,21 @@ async def on_hil_decision(cb: CallbackQuery, backend: BackendClient) -> None:
         return
 
     header = "✅ Подтверждено" if approved else "❌ Отменено"
+    if result.get("status") == "interrupted":
+        # Граф снова встал на подтверждение: в одном прогоне была вторая
+        # опасная отправка («сначала мне, потом Попову»). Без этой ветки
+        # пользователь видел «(пустой ответ)», кнопки уже сняты — тупик
+        # (живой прогон 09.10). Показываем новую паузу с кнопками того же
+        # треда: следующий resume продолжит прогон с места остановки.
+        await _edit(cb, f"{header}\n\n⚠️ Агент снова ждёт подтверждения отправки.")
+        if cb.message is not None:
+            await _answer(
+                cb.message,
+                render_interrupt(
+                    result.get("interrupt") or {},
+                    result.get("tool_results") or [],
+                ),
+                reply_markup=hil_kb(thread_id),
+            )
+        return
     await _edit(cb, f"{header}\n\n{render_result(result)}")

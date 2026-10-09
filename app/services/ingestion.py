@@ -113,13 +113,29 @@ def clean(text: str) -> str:
     return text.strip()
 
 
-def category_from_path(path: str) -> str:
+def category_from_path(path: str, corpus_root: str | Path | None = None) -> str:
     """`data/kb/finance/2025/policy.pdf` -> `finance` (папка верхнего уровня корпуса).
 
     Корневой файл без категорийной подпапки (`data/kb/<file>`) -> `raznoe`, а
     не имя файла: иначе загруженный в корень документ получает категорией
     собственное имя (баг категоризации, см. техдолг category-taxonomy).
+
+    Если передан `corpus_root` — категория = первый сегмент пути ОТНОСИТЕЛЬНО
+    корня; это надёжнее эвристики по якорям. Живой прогон 09.10: у демо-корпуса
+    (`data/demo_kb/<категория>/...`) якорь «data» срабатывал раньше подпапки,
+    и категорией всех документов становился сам корень — «demo_kb». Фильтр RAG
+    по ПС тогда не находил ничего, и `/ask` с любой темой отвечал отказом.
     """
+    if corpus_root is not None:
+        try:
+            rel = Path(path).resolve().relative_to(Path(corpus_root).resolve())
+        except ValueError:
+            rel = None  # путь вне корня (абсолютный файл из mode=files) — эвристика ниже
+        if rel is not None:
+            if len(rel.parts) <= 1:
+                return "raznoe"
+            return rel.parts[0]
+
     parts = Path(path).parts
     for anchor in _CATEGORY_ANCHORS:
         if anchor not in parts:
@@ -147,11 +163,15 @@ def version_from_filename(path: str) -> str:
     return match.group(1) if match else "unversioned"
 
 
-def file_metadata(path: str) -> dict[str, str]:
+def file_metadata(
+    path: str, corpus_root: str | Path | None = None
+) -> dict[str, str]:
     """Метаданные на этапе загрузки: источник, категория, тип, версия, дата.
 
     `last_modified` берём из stat-файла — стабильно между запусками, в отличие
     от `indexed_at=date.today()`, который сломал бы идемпотентность UPSERTS.
+    `corpus_root` — корень корпуса, для точного вычисления категории (см.
+    `category_from_path`).
     """
     p = Path(path)
     try:
@@ -160,7 +180,7 @@ def file_metadata(path: str) -> dict[str, str]:
         mtime = 0.0
     return {
         "source": p.name,
-        "category": category_from_path(path),
+        "category": category_from_path(path, corpus_root),
         "doc_type": doc_type_from_path(path),
         "version": version_from_filename(path),
         "visibility": "internal",
@@ -369,7 +389,7 @@ class IngestionService:
     def _read_file(self, path: Path) -> list[Document]:
         """Загружает один файл нужным ридером, проставляет метаданные."""
         suffix = path.suffix.lower()
-        base = file_metadata(str(path))
+        base = file_metadata(str(path), corpus_root=self._data_dir)
 
         if suffix == ".pdf":
             if self._settings.rag_pdf_parser == "inspector":

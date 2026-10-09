@@ -89,13 +89,19 @@ async def test_single_message_count(llm_service: LLMService):
     our_count = count_tokens(messages, model=model)
 
     client = llm_service.get_llm("openai")
-    response = await client.chat.completions.create(
-        model=model,
-        messages=messages,
-        temperature=0.0,
-        max_tokens=1,
-        stream=False,
-    )
+    try:
+        response = await client.chat.completions.create(
+            model=model,
+            messages=messages,
+            temperature=0.0,
+            max_tokens=1,
+            stream=False,
+        )
+    except Exception as e:
+        # Симметрично test_count_tokens_accuracy: недоступная сеть/API — skip,
+        # а не падение прогона (тест помечен маркером integration).
+        pytest.skip(f"API call failed: {e}")
+
     real_count = response.usage.prompt_tokens if response.usage else 0
     if real_count == 0:
         pytest.skip("Usage not returned")
